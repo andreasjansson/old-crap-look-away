@@ -39,6 +39,6 @@ class Chromagram:
     def plot_axes(self):
         def function(ax):
             ax.locator_params(axis='y', tight=False, nbins=self.bins + 1)
-            ax.imshow(self.data, cmap='gray', interpolation='nearest',
+            ax.imshow(self.data, cmap='binary', interpolation='nearest',
                       origin='lower', aspect='auto')
         return function
