@@ -117,9 +117,12 @@ class Audio(object):
 
     def plot(self):
         fig, ax = plt.subplots(self.channels, 1, sharex=True, sharey=True)
-
         if self.channels == 1:
             ax = (ax,)
-
-        [ax[i].plot(self.signal[:, i]) for i in range(self.channels)]
+        [self.plot_axes(i)(ax[i]) for i in range(self.channels)]
         fig.show()
+
+    def plot_axes(self, channel=0):
+        def function(ax):
+            ax.plot(self.signal[:, channel])
+        return function
