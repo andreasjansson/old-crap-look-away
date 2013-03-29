@@ -3,6 +3,7 @@ import mad
 import numpy as np
 import struct
 import scipy.io.wavfile
+import matplotlib.pyplot as plt
 
 from util import *
 
@@ -21,9 +22,9 @@ class Audio(object):
 
         ext = get_extension(path)
         if ext == '.mp3':
-            self.read_mp3()
+            self._read_mp3()
         elif ext == '.wav':
-            self.read_wav()
+            self._read_wav()
         else:
             raise NotImplementedError('Unknown file extension')
 
@@ -31,7 +32,7 @@ class Audio(object):
         if self.remote_path:
             os.unlink(self.filename)
 
-    def read_mp3(self):
+    def _read_mp3(self):
         mf = mad.MadFile(self.filename)
 
         if mf.mode() == mad.MODE_SINGLE_CHANNEL:
@@ -67,11 +68,11 @@ class Audio(object):
 
         self.length = length
         if self.channels == 1:
-            self.signal = np.array(signal_l)
+            self.signal = np.array([signal_l])
         elif self.channels == 2:
             self.signal = np.transpose(np.array([signal_l, signal_r]))
 
-    def read_wav(self):
+    def _read_wav(self):
         self.sample_rate, self.signal = scipy.io.wavfile.read(self.filename)
         if self.signal.dtype == 'int16':
             self.signal = self.signal.astype(float) / 32768.0
@@ -79,7 +80,12 @@ class Audio(object):
         if max(self.signal) > 1 or min(self.signal) < -1:
             raise Exception('Unknown data type')
 
-        self.channels = 1 if len(self.signal.shape) == 1 else self.signal.shape[1]
+        sig_shape = self.signal.shape
+        if len(sig_shape) == 1:
+            sig_shape = (sig_shape[0], 1)
+            self.signal.shape = sig_shape
+
+        self.channels = self.signal.shape[1]
         self.length = self.signal.shape[0]
             
     def play(self):
@@ -108,3 +114,12 @@ class Audio(object):
             signal = struct.pack('<%df' % len(signal), *signal)
 
             pcm.write(signal)
+
+    def plot(self):
+        fig, ax = plt.subplots(self.channels, 1, sharex=True, sharey=True)
+
+        if self.channels == 1:
+            ax = (ax,)
+
+        [ax[i].plot(self.signal[:, i]) for i in range(self.channels)]
+        fig.show()
