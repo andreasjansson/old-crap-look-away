@@ -4,6 +4,7 @@ import numpy as np
 import struct
 import scipy.io.wavfile
 import matplotlib.pyplot as plt
+import operator
 
 from util import *
 
@@ -34,7 +35,6 @@ class Audio(object):
 
     def _read_mp3(self):
         mf = mad.MadFile(self.filename)
-
         if mf.mode() == mad.MODE_SINGLE_CHANNEL:
             self.channels = 1
         elif mf.mode() == mad.MODE_JOINT_STEREO:
@@ -55,10 +55,13 @@ class Audio(object):
                 break
 
             nsamples = len(buf) / 2 # 2 chars per short
+            #nsamples = len(buf) / 4 # 4 chars per int
             length += nsamples / self.channels
 
             buf = struct.unpack_from('%dh' % nsamples, buf)
             buf = [x / 32768.0 for x in buf]
+            #buf = struct.unpack_from('%di' % nsamples, buf)
+            #buf = [x / 4294967296.0 for x in buf]
 
             if self.channels == 1:
                 signal_l.extend(buf)
@@ -68,14 +71,18 @@ class Audio(object):
 
         self.length = length
         if self.channels == 1:
-            self.signal = np.array([signal_l])
+            self.signal = np.array([signal_l], dtype='float32')
         elif self.channels == 2:
-            self.signal = np.transpose(np.array([signal_l, signal_r]))
+            self.signal = np.array([signal_l, signal_r], dtype='float32')
+
+        self.signal = np.transpose(self.signal)
 
     def _read_wav(self):
         self.sample_rate, self.signal = scipy.io.wavfile.read(self.filename)
         if self.signal.dtype == 'int16':
             self.signal = self.signal.astype(float) / 32768.0
+        elif self.signal.dtype == 'int32':
+            self.signal = self.signal.astype(float) / 4294967296.0
 
         if max(self.signal) > 1 or min(self.signal) < -1:
             raise Exception('Unknown data type')
@@ -104,13 +111,14 @@ class Audio(object):
             end_pos = pos + period
 
             if self.channels == 1:
-                signal = self.signal[pos:end_pos]
+                signal = self.signal[pos:end_pos, 0]
             elif self.channels == 2:
                 signal = np.empty((period * 2,), dtype=self.signal.dtype)
                 signal[0::2] = self.signal[pos:end_pos, 0]
                 signal[1::2] = self.signal[pos:end_pos, 1]
 
             #signal = [int(x * 32768) for x in signal]
+
             signal = struct.pack('<%df' % len(signal), *signal)
 
             pcm.write(signal)
