@@ -4,7 +4,7 @@ import scipy
 import matplotlib.pyplot as plt
 import scipy.misc
 
-class Spectrogram:
+class Spectrogram(object):
 
     def __init__(self, signal, sample_rate, window_size=1024, 
                  hop_size=512, window_function='hamming'):

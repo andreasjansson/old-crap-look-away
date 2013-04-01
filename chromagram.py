@@ -3,7 +3,7 @@ import math
 import scipy
 import matplotlib.pyplot as plt
 
-class Chromagram:
+class Chromagram(object):
 
     def __init__(self, spectra, sample_rate, bins=12, base=261.63):
         self.sample_rate = sample_rate
