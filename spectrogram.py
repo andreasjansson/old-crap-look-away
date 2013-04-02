@@ -21,9 +21,9 @@ class Spectrogram(object):
         siglen = len(signal)
         siglen = (siglen - self.window_size) - (siglen % self.hop_size)
 
+        window = np.hanning(self.window_size)
         for t in xrange(0, siglen, self.hop_size):
-            windowed = (signal[t:(t + self.window_size)] *
-                        np.hanning(self.window_size))
+            windowed = signal[t:(t + self.window_size)] * window
             spectrum = abs(scipy.fft(windowed))
             spectrum = spectrum[0:len(spectrum) / 2]
             self.data[:, t / self.hop_size] = spectrum
