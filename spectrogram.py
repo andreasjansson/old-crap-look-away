@@ -76,3 +76,28 @@ class Spectrogram(object):
             ax.set_yticklabels(np.round(ytick_labels).astype(int))
 
         return function
+
+
+def find_monophonic_path(spectrogram_data, noise_floor=15):
+    maxima = spectrogram_data.argmax(0)
+
+    # what's the proper way of doing this????
+    values = np.array([spectrogram_data[maxima[i], i] for
+                       i in range(len(maxima))])
+
+    costs = np.zeros(spectrogram_data.shape) + 10
+
+    def cost_function(from, to):
+        
+
+    for t in xrange(1, spectrogram_data.shape[1]):
+        for x in xrange(0, spectrogram_data.shape[0]):
+            costs[
+
+    path = np.zeros(len(maxima))
+    path[t] = paths[:,].argmin()
+    for t in reversed(xrange(len(maxima) - 1)):
+        path[t] = 
+
+    return maxima
+
