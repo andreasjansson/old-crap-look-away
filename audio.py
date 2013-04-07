@@ -10,9 +10,11 @@ from util import *
 
 class Audio(object):
 
-    def __init__(self, path=None):
+    def __init__(self, path=None, max_time=None):
         if not path:
             return
+
+        self.max_time = max_time
         
         if path.startswith('http://'):
             self.remote_path = path
@@ -43,6 +45,10 @@ class Audio(object):
             raise NotImplementedError('Unsupported stereo mode')
 
         self.sample_rate = mf.samplerate()
+        if self.max_time is not None:
+            max_samples = self.sample_rate * self.max_time
+        else:
+            max_samples = None
 
         signal_l = []
         if self.channels == 2:
@@ -69,11 +75,17 @@ class Audio(object):
                 signal_l.extend(buf[0::2])
                 signal_r.extend(buf[1::2])
 
+            if max_samples is not None and length >= max_samples:
+                break
+
         self.length = length
         if self.channels == 1:
             self.signal = np.array([signal_l], dtype='float32')
         elif self.channels == 2:
             self.signal = np.array([signal_l, signal_r], dtype='float32')
+
+        if max_samples is not None and self.signal.shape[0] > max_samples:
+            self.signal = self.signal[0:max_samples, :]
 
         self.signal = np.transpose(self.signal)
 
@@ -104,7 +116,7 @@ class Audio(object):
 
         period_size = 128
         pcm.setperiodsize(period_size)
-        
+
         for pos in xrange(0, self.length, period_size):
 
             period = min(period_size, self.length - pos)
