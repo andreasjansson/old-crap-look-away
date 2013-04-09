@@ -3,6 +3,7 @@ import math
 import scipy
 import matplotlib.pyplot as plt
 import scipy.misc
+import scipy.weave
 
 class Spectrogram(object):
 
@@ -78,26 +79,30 @@ class Spectrogram(object):
         return function
 
 
-def find_monophonic_path(spectrogram_data, noise_floor=15):
-    maxima = spectrogram_data.argmax(0)
+def monophonic_path(spectrogram_data):
+    values = np.max(spectrogram_data) - spectrogram_data
+    costs = np.zeros(spectrogram_data.shape)
+    prev = np.zeros(spectrogram_data.shape)
 
-    # what's the proper way of doing this????
-    values = np.array([spectrogram_data[maxima[i], i] for
-                       i in range(len(maxima))])
+    change_cost = 5
 
-    costs = np.zeros(spectrogram_data.shape) + 10
+    costs[:, 0] = values[:, 0]
 
-    def cost_function(from, to):
-        
+    height, length = values.shape
 
-    for t in xrange(1, spectrogram_data.shape[1]):
-        for x in xrange(0, spectrogram_data.shape[0]):
-            costs[
+    with open('dynprog.c', 'r') as f:
+        code = f.read()
+    scipy.weave.inline(code, ['values', 'costs', 'prev', 'change_cost',
+                              'length', 'height'],
+                       type_converters=scipy.weave.converters.blitz)
 
-    path = np.zeros(len(maxima))
-    path[t] = paths[:,].argmin()
-    for t in reversed(xrange(len(maxima) - 1)):
-        path[t] = 
+    path = [0] * values.shape[1]
+    path[-1] = np.argmin(costs[:, -1])
+    for t in reversed(xrange(len(path) - 1)):
+        path[t] = prev[path[t + 1], t]
 
-    return maxima
+    return path
 
+def notes_from_path(path, sample_rate, threshold):
+    notes = []
+    
