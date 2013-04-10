@@ -7,8 +7,8 @@ import scipy.weave
 
 class Spectrogram(object):
 
-    def __init__(self, signal, sample_rate, window_size=1024, 
-                 hop_size=512, window_function='hamming'):
+    def __init__(self, signal, sample_rate, window_size=4096, 
+                 hop_size=2048, window_function='hamming'):
         self.sample_rate = sample_rate
         self.window_size = window_size
         self.hop_size = hop_size
@@ -83,8 +83,10 @@ def monophonic_path(spectrogram_data):
     values = np.max(spectrogram_data) - spectrogram_data
     costs = np.zeros(spectrogram_data.shape)
     prev = np.zeros(spectrogram_data.shape)
+    amp = amplitude(spectrogram_data)
 
-    change_cost = 5
+    change_cost = .1
+    silence_cost = 2
 
     costs[:, 0] = values[:, 0]
 
@@ -93,7 +95,7 @@ def monophonic_path(spectrogram_data):
     with open('dynprog.c', 'r') as f:
         code = f.read()
     scipy.weave.inline(code, ['values', 'costs', 'prev', 'change_cost',
-                              'length', 'height'],
+                              'amp', 'silence_cost', 'length', 'height'],
                        type_converters=scipy.weave.converters.blitz)
 
     path = [0] * values.shape[1]
@@ -103,6 +105,34 @@ def monophonic_path(spectrogram_data):
 
     return path
 
-def notes_from_path(path, sample_rate, threshold):
-    notes = []
+def monophonic_maxima_path(spectrogram_data):
+    return spectrogram_data.argmax(0)
+
+# plt.step(n[:,0], n[:,2], where='post')
+# ioi = (n[1:,0] - n[:-1,0]).astype(int)
+# plt.plot(np.bincount(ioi.astype(int)))
+def notes_from_path(path, threshold=2):
+    notes = np.empty((0, 3))
+    current = []
+    start_time = 0
+    for t, x in enumerate(path):
+        if len(current):
+            mean = sum(current) / len(current)
+        else:
+            mean = 0
+        if abs(x - mean) > threshold:
+            notes = np.vstack((notes, [start_time, t, round(mean)]))
+            current = [x]
+            start_time = t + 1
+        else:
+            current.append(x)
+    notes = np.vstack((notes, [start_time, t, round(mean)]))
+
+    return notes
     
+def amplitude(spectrogram_data, smooth_width=50):
+    window = np.hanning(smooth_width)
+    window /= window.sum()
+
+    amp = np.sum(spectrogram_data[1:,:], 0) # ignore 0 index
+    return np.convolve(amp, window, mode='same')
