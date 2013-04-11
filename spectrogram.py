@@ -108,9 +108,7 @@ def monophonic_path(spectrogram_data):
 def monophonic_maxima_path(spectrogram_data):
     return spectrogram_data.argmax(0)
 
-# plt.step(n[:,0], n[:,2], where='post')
-# ioi = (n[1:,0] - n[:-1,0]).astype(int)
-# plt.plot(np.bincount(ioi.astype(int)))
+# notes is a matrix with fields [start, end, note]
 def notes_from_path(path, threshold=1):
     notes = np.empty((0, 3))
     current = []
@@ -128,8 +126,46 @@ def notes_from_path(path, threshold=1):
             current.append(x)
     notes = np.vstack((notes, [start_time, t, round(mean)]))
 
+    notes = notes.astype(int)
     return notes
-    
+
+# assuming argmax ioi = beat
+# returns matrix with columns [time, klang_1, klang_2, [...], klang_n]
+def get_nklangs(notes, nbeats, n, threshold=.5):
+    iois = notes[1:, 0] - notes[:-1, 0]
+    beat = np.argmax(np.bincount(iois))
+    bars = []
+    bar = []
+    phase = 0
+    time = 0
+
+    for i, ioi in enumerate(iois):
+        if ioi > beat * threshold:
+            bar.append((ioi, notes[i, 2]))
+
+        if phase > beat * nbeats:
+            if len(bar) > 0:
+                bars.append((time, bar))
+            bar = []
+            phase -= beat * nbeats
+
+        phase += ioi
+        time += ioi
+
+    nklangs = np.zeros((len(bars), n + 1))
+    for i, (time, bar) in enumerate(bars):
+        nklang = [x[1] for x in sorted(bar, reverse=True)[0:n]]
+        if len(nklang) < n:
+            nklang = [nklang[0]] * (n - len(nklang) + 1) + nklang[1:]
+        nklangs[i,:] = [time] + nklang
+
+    return nklangs
+
+def nklangs_to_feature_vector(nklangs, nnotes=55):
+    n = nklangs.shape[1] - 1
+    values = (nklangs[:, 1:] * np.power(nnotes, np.arange(n))).sum(1)
+    return values
+
 def amplitude(spectrogram_data, smooth_width=50):
     window = np.hanning(smooth_width)
     window /= window.sum()
