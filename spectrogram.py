@@ -111,13 +111,13 @@ def monophonic_maxima_path(spectrogram_data):
 # plt.step(n[:,0], n[:,2], where='post')
 # ioi = (n[1:,0] - n[:-1,0]).astype(int)
 # plt.plot(np.bincount(ioi.astype(int)))
-def notes_from_path(path, threshold=2):
+def notes_from_path(path, threshold=1):
     notes = np.empty((0, 3))
     current = []
     start_time = 0
     for t, x in enumerate(path):
         if len(current):
-            mean = sum(current) / len(current)
+            mean = sum(current) / float(len(current))
         else:
             mean = 0
         if abs(x - mean) > threshold:
