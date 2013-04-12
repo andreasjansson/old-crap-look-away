@@ -175,12 +175,18 @@ def get_nklangs(notes, nbeats, n, threshold=.5):
             nklang = [nklang[0]] * (n - len(nklang) + 1) + nklang[1:]
         nklangs[i,:] = [time] + nklang
 
+    nklangs = nklangs.astype(int)
+
     return nklangs
 
 def nklangs_to_feature_vector(nklangs, octave_steps):
     n = nklangs.shape[1] - 1
     values = (nklangs[:, 1:] * np.power(octave_steps, np.arange(n))).sum(1)
-    return values
+    vector = np.bincount(values.astype(int))
+    #length = np.sum(([octave_steps] * n) * np.power(octave_steps, np.arange(n)))
+    # closed form
+    length = (octave_steps * (octave_steps ** n - 1) / (octave_steps - 1))
+    return pad1d(vector, 0, length)
 
 def amplitude(spectrogram_data, smooth_width=50):
     window = np.hanning(smooth_width)
@@ -188,3 +194,19 @@ def amplitude(spectrogram_data, smooth_width=50):
 
     amp = np.sum(spectrogram_data[1:,:], 0) # ignore 0 index
     return np.convolve(amp, window, mode='same')
+
+def pad1d(array, x, length):
+    return np.append(array, [x] * (length - len(array)))
+
+def audio_to_feature_vector(filename):
+    import audio
+    a = audio.Audio(filename)
+    s = Spectrogram(a.signal[:, 0], a.sample_rate, 4096, 2048)
+    path = monophonic_maxima_path(s.data)
+    notes = notes_from_path(path)
+    steps = 12
+    classes = notes_quantise_pitch_class(notes[:, 2], steps, s.sample_rate, s.window_size)
+    notes[:,2] = classes
+    nklangs = get_nklangs(notes, 4, 2)
+    fv = nklangs_to_feature_vector(nklangs, steps)
+    return nklangs, fv
