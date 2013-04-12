@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import scipy.misc
 import scipy.weave
 import sklearn
+import os.path
 
 class Spectrogram(object):
 
@@ -124,7 +125,7 @@ def notes_from_path(path, threshold=1):
             if mean > 0:
                 notes = np.vstack((notes, [start_time, t, round(mean)]))
             current = []
-            start_time = t + 1
+            start_time = t
 
         if x > 0:
             current.append(x)
@@ -140,7 +141,7 @@ def notes_quantise_pitch_class(note_bins, octave_steps, sample_rate, window_size
     freqs = note_bins * sample_rate / window_size
     base = 261.63 # c, TODO: should probably be something less western
     pitches = np.log2(freqs / base) * octave_steps
-    classes = np.mod(pitches, octave_steps)
+    classes = np.mod(pitches.astype(int), octave_steps)
     classes = np.round(classes).astype(int)
 
     return classes
@@ -199,15 +200,53 @@ def amplitude(spectrogram_data, smooth_width=50):
 def pad1d(array, x, length):
     return np.append(array, [x] * (length - len(array)))
 
-def audio_to_feature_vector(filename):
-    import audio
-    a = audio.Audio(filename)
-    s = Spectrogram(a.signal[:, 0], a.sample_rate, 4096, 2048)
+# import audio
+# a = audio.Audio(filename)
+# s = Spectrogram(a.signal[:, 0], a.sample_rate, 4096, 2048)
+# path = monophonic_maxima_path(s.data)
+# notes = notes_from_path(path)
+# steps = 12
+# classes = notes_quantise_pitch_class(notes[:, 2], steps, s.sample_rate, s.window_size)
+# notes[:,2] = classes
+# nklangs = get_nklangs(notes, 4, 2)
+# fv = nklangs_to_feature_vector(nklangs, steps)
+
+# when using 55 steps per octave,
+# we need a high window size, e.g. 8192, with shorter hop, e.g. 2048
+# one way is to see how the chroma converges, by taking euclidean
+# distance of consecutive window sizes. doing that, 8192 and 16384
+# produce similar 55 step chroma
+# Q: is it worth filtering adjacent components? surely during
+# performance, the pitch fluctuates? being strict about this would
+# make classification very difficult. maybe it's better to quantise
+# to a western scale? or some other scale (e.g. 24 steps)??
+def chroma(a, window_size, steps):
+    s = Spectrogram(a.signal[:, 0], a.sample_rate, window_size, 2048)
     path = monophonic_maxima_path(s.data)
     notes = notes_from_path(path)
-    steps = 12
-    classes = notes_quantise_pitch_class(notes[:, 2], steps, s.sample_rate, s.window_size)
-    notes[:,2] = classes
+    classes = notes_quantise_pitch_class(notes[:, 2], steps, s.sample_rate,
+                                         window_size)
+    return pad1d(np.bincount(classes), 0, steps)
+
+def class_from_filename(filename):
+    basename = os.path.basename(filename)
+    c = basename.split('--', 1)[0]
+    return c
+
+def get_training_example(filename):
+    import audio
+
+    a = audio.Audio(filename)
+    s = Spectrogram(a.signal[:, 0], a.sample_rate, 8192, 2048)
+    path = monophonic_maxima_path(s.data)
+    notes = notes_from_path(path)
+    steps = 24
+    pitch_classes = notes_quantise_pitch_class(notes[:, 2], steps, s.sample_rate, s.window_size)
+    notes[:,2] = pitch_classes
     nklangs = get_nklangs(notes, 4, 2)
     fv = nklangs_to_feature_vector(nklangs, steps)
-    return nklangs, fv
+
+    c = class_from_filename(filename)
+
+    return c, fv
+
