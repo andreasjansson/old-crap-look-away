@@ -118,16 +118,32 @@ def notes_from_path(path, threshold=1):
             mean = sum(current) / float(len(current))
         else:
             mean = 0
+
         if abs(x - mean) > threshold:
-            notes = np.vstack((notes, [start_time, t, round(mean)]))
-            current = [x]
+            if mean > 0:
+                notes = np.vstack((notes, [start_time, t, round(mean)]))
+            current = []
             start_time = t + 1
-        else:
+
+        if x > 0:
             current.append(x)
-    notes = np.vstack((notes, [start_time, t, round(mean)]))
+
+    if mean > 0:
+        notes = np.vstack((notes, [start_time, t, round(mean)]))
 
     notes = notes.astype(int)
     return notes
+
+def notes_quantise_pitch_class(note_bins, octave_steps, sample_rate, window_size):
+    notes = note_bins.astype(float)
+    freqs = note_bins * sample_rate / window_size
+    base = 261.63 # c, TODO: should probably be something less western
+    pitches = np.log2(freqs / base) * octave_steps
+    classes = np.mod(pitches, octave_steps)
+    classes = np.round(classes).astype(int)
+
+    return classes
+
 
 # assuming argmax ioi = beat
 # returns matrix with columns [time, klang_1, klang_2, [...], klang_n]
@@ -161,9 +177,9 @@ def get_nklangs(notes, nbeats, n, threshold=.5):
 
     return nklangs
 
-def nklangs_to_feature_vector(nklangs, nnotes=55):
+def nklangs_to_feature_vector(nklangs, octave_steps):
     n = nklangs.shape[1] - 1
-    values = (nklangs[:, 1:] * np.power(nnotes, np.arange(n))).sum(1)
+    values = (nklangs[:, 1:] * np.power(octave_steps, np.arange(n))).sum(1)
     return values
 
 def amplitude(spectrogram_data, smooth_width=50):
