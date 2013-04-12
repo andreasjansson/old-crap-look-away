@@ -4,6 +4,7 @@ import scipy
 import matplotlib.pyplot as plt
 import scipy.misc
 import scipy.weave
+import sklearn
 
 class Spectrogram(object):
 
