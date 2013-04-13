@@ -69,6 +69,11 @@ class Job(object):
         cf = pycassa.ColumnFamily(self.cassandra(), 'data')
         cf.insert(key, json.dumps(value))
 
+    def clear(self):
+        self.rabbitmq().queue_delete(queue=self.name)
+        pycassa.ColumnFamily(self.cassandra(), 'data').truncate()
+        pycassa.ColumnFamily(self.cassandra(), 'log').truncate()
+
     def get_log(self):
         cf = pycassa.ColumnFamily(self.cassandra(), 'log')
         return list(cf.get_range())

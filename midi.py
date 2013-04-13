@@ -22,8 +22,7 @@ def synthesise(input_path, output_path, default_program=None):
         options = options + ['--default-program', str(default_program)]
 
     timidity_output = subprocess.check_output(
-        ['timidity', '-Ow', '-o' + wav_filename, midi_filename],
-        shell = False, stderr=subprocess.STDOUT)
+        options, shell = False, stderr=subprocess.STDOUT)
 
     if midi_filename != input_path:
         os.unlink(midi_filename)

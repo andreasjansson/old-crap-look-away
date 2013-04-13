@@ -15,6 +15,8 @@ def main(job_name, s3_bucket, midi_s3_folder, mp3_s3_folder):
     mp3_paths = []#s3.ls(s3_bucket, mp3_s3_folder)
     unprocessed = paths_to_names(midi_paths) - paths_to_names(mp3_paths)
 
+    #publisher.clear()
+
     for name in unprocessed:
         data = {
             'bucket': s3_bucket,
