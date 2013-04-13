@@ -2,6 +2,7 @@ import urllib
 import tempfile
 import os
 import matplotlib.pyplot as plt
+import subprocess
 
 def get_extension(path):
     split = os.path.splitext(path)
@@ -11,7 +12,6 @@ def get_extension(path):
 
 def tempnam(extension):
     f = tempfile.NamedTemporaryFile(suffix=extension, delete=False)
-    f.close()
     return f.name
 
 def make_local(path):
@@ -31,11 +31,12 @@ def multiplot(plot_functions):
         function(ax)
     fig.show()
 
-def wav_to_mp3(wav_filename):
-    if not os.path.exists(wav_file):
+def wav_to_mp3(wav_filename, mp3_filename=None):
+    if not os.path.exists(wav_filename):
         raise Exception('%s does not exist')
 
-    mp3_filename = tempnam('.mp3')
+    if mp3_filename is None:
+        mp3_filename = tempnam('.mp3')
 
     lame_output = subprocess.check_output(
         ['lame', '-b128', wav_filename, mp3_filename], shell = False,

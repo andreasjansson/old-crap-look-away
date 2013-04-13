@@ -5,3 +5,4 @@ pika
 pycassa
 scikit-learn
 scipy
+matplotlib

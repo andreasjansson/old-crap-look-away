@@ -1,5 +1,6 @@
 import os
 import util
+import subprocess
 
 def synthesise(input_path, output_path, default_program=None):
 
@@ -10,19 +11,22 @@ def synthesise(input_path, output_path, default_program=None):
     if output_extension not in ['.wav', '.mp3']:
         raise SynthesiseException('Cannot synthesise to %s' % output_extension)
 
-    additional_options = []
-    if default_program is not None:
-        additional_options.append('--default-program', default_program)
-
     midi_filename = util.make_local(input_path)
-    wav_filename = util.tempnam('.wav')
+    if output_extension == '.wav':
+        wav_filename = output_path
+    else:
+        wav_filename = util.tempnam('.wav')
+
+    options = ['timidity', '-Ow', '-o' + wav_filename, midi_filename]
+    if default_program is not None:
+        options = options + ['--default-program', str(default_program)]
+
     timidity_output = subprocess.check_output(
-        ['timidity', '-Ow', '-o' + wav_filename, midi_filename] +
-        additional_options, shell = False,
-        stderr=subprocess.STDOUT)
+        ['timidity', '-Ow', '-o' + wav_filename, midi_filename],
+        shell = False, stderr=subprocess.STDOUT)
 
     if midi_filename != input_path:
-        os.path.unlink(midi_filename)
+        os.unlink(midi_filename)
 
     if not os.path.exists(wav_filename):
         raise SynthesiseException('Failed to synthesise %s: %s', wav_filename, timidity_output)
@@ -31,11 +35,11 @@ def synthesise(input_path, output_path, default_program=None):
         return wav_filename
 
     try:
-        mp3_filename = util.wav_to_mp3(wav_filename)
+        mp3_filename = util.wav_to_mp3(wav_filename, output_path)
     except Exception, e:
         raise SynthesiseException('Failed to convert wav to mp3: ' + str(e))
     finally:
-        os.path.unlink(wav_filename)
+        os.unlink(wav_filename)
 
     return mp3_filename
 
