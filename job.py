@@ -4,7 +4,8 @@ import json
 import ConfigParser
 import os
 import sys
-import time
+import datetime
+import socket
 
 _config = None
 def config(section):
@@ -25,6 +26,7 @@ class Job(object):
         self.rabbitmq_conn = None
         self.rabbitmq_channel = None
         self.cassandra_pool = None
+        self.hostname = socket.gethostname()
 
     def put_data(self, data):
         self.rabbitmq().basic_publish(
@@ -54,8 +56,8 @@ class Job(object):
 
     def log(self, message):
         print message
-        column_family = pycassa.ColumnFamily(self.cassandra(), 'log')
-        column_family.insert('log', {time.time(): message})
+        cf = pycassa.ColumnFamily(self.cassandra(), 'log')
+        cf.insert(self.hostname, {datetime.datetime.utcnow(): message})
 
     def log_exception(self, exception):
         exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -64,8 +66,12 @@ class Job(object):
             exc_type, fname, exc_tb.tb_lineno))
 
     def store(self, key, value):
-        column_family = pycassa.ColumnFamily(self.cassandra(), 'data')
-        column_family.insert(key, json.dumps(value))
+        cf = pycassa.ColumnFamily(self.cassandra(), 'data')
+        cf.insert(key, json.dumps(value))
+
+    def get_log(self):
+        cf = pycassa.ColumnFamily(self.cassandra(), 'log')
+        return list(cf.get_range())
 
     def get_queue_length(self):
         return self.rabbitmq().queue_declare(self.name, passive=True).method.message_count
@@ -95,7 +101,10 @@ class Job(object):
             sys.create_keyspace(self.name,
                                 strategy_options={'replication_factor': '1'})
             sys.create_column_family(self.name, 'data')
-            sys.create_column_family(self.name, 'log', comparator_type=pycassa.TIME_UUID_TYPE)
+            sys.create_column_family(self.name, 'log',
+                                     comparator_type=pycassa.TIME_UUID_TYPE,
+                                     key_validation_class=pycassa.ASCII_TYPE,
+                                     default_validation_class=pycassa.ASCII_TYPE)
 
         self.cassandra_pool = pycassa.pool.ConnectionPool(self.name, [server])
 
