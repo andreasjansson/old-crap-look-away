@@ -3,7 +3,6 @@ import mad
 import numpy as np
 import struct
 import scipy.io.wavfile
-import matplotlib.pyplot as plt
 import operator
 
 from util import *
@@ -136,6 +135,7 @@ class Audio(object):
             pcm.write(signal)
 
     def plot(self):
+        import matplotlib.pyplot as plt
         fig, ax = plt.subplots(self.channels, 1, sharex=True, sharey=True)
         if self.channels == 1:
             ax = (ax,)

@@ -1,11 +1,12 @@
 import numpy as np
 import math
 import scipy
-import matplotlib.pyplot as plt
 import scipy.misc
 import scipy.weave
-import sklearn
+import sklearn.tree
 import os.path
+import glob
+import cPickle
 
 class Spectrogram(object):
 
@@ -34,6 +35,7 @@ class Spectrogram(object):
         self.height, self.length = self.data.shape
 
     def plot(self, *args, **kwargs):
+        import matplotlib.pyplot as plt
         fig, ax = plt.subplots()
         self.plot_axes(*args, **kwargs)(ax)
         fig.show()
@@ -250,3 +252,23 @@ def get_training_example(filename):
 
     return c, fv
 
+def get_training_data(directory, nfeatures):
+    filenames = glob.glob(directory + '/*.pkl')
+    examples = np.zeros((len(filenames), nfeatures))
+    makams = []
+    for i, filename in enumerate(filenames):
+        with open(filename, 'rb') as f:
+            examples[i, :] = cPickle.load(f)
+        makams.append(class_from_filename(filename))
+
+    makams = np.unique(makams, return_inverse=True)[1]
+
+    return examples, makams
+
+def plot_decision_tree(clf):
+    import StringIO, pydot 
+    dot_data = StringIO.StringIO() 
+    sklearn.tree.export_graphviz(clf, out_file=dot_data) 
+    graph = pydot.graph_from_dot_data(dot_data.getvalue()) 
+    graph.write_png('tmp.png') 
+    os.system('sxiv tmp.png')
