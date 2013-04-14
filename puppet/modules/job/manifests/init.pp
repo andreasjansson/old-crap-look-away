@@ -1,11 +1,11 @@
 class job {
 
-  file { '/home/ubuntu/.boto':
+  file { '/root/.boto':
     ensure => present,
     source => 'puppet:///modules/job/.boto',
   }
 
-  file { '/home/ubuntu/.job':
+  file { '/root/.job':
     ensure => present,
     source => 'puppet:///modules/job/.job',
   }

@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import job
 import sys
 import pycassa

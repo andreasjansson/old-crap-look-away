@@ -62,6 +62,9 @@ def price():
 
 @runs_once
 def new(instance_type, price, n=1):
+
+    uncache()
+
     print 'Creating spot requests'
     requests = _ec2().request_spot_instances(
         price=price,
@@ -133,7 +136,8 @@ def build(puppet_dir='puppet', init_filename='init.pp'):
     sudo('puppet apply %s/%s' % (remote_puppet_dir, init_filename))
 
 @parallel
-def run(code_dir, script, job_name='active', workers_per_instance=None):
+def run(code_dir, script, args='', job_name='active', workers_per_instance=None,
+        exclude=['.git', 'puppet']):
     instance = _host_instance()
 
     if workers_per_instance is None:
@@ -143,22 +147,26 @@ def run(code_dir, script, job_name='active', workers_per_instance=None):
         code_dir += '/'
 
     remote_code_dir = '/opt/' + job_name
+    exclude_opts = ' '.join(['--exclude ' + pattern for pattern in exclude])
     project.rsync_project(local_dir=code_dir, remote_dir=remote_code_dir,
+                          extra_opts=exclude_opts,
                           ssh_opts='-o StrictHostKeyChecking=no')
 
     sudo('chmod +x %s/%s' % (remote_code_dir, script))
 
-    sudo('''
-        echo 'instance $N
-              script
-                %s/%s >> /var/log/%s.stdout.log 2>> /var/log/%s.stderr.log
-              end script' > /etc/init/%s.conf
-         ''' % (remote_code_dir, script, job_name, job_name, job_name))
+    sudo('''echo '
+instance $N
+script
+    %s/%s %s >> /var/log/%s.stdout.log 2>> /var/log/%s.stderr.log
+end script' > /etc/init/%s.conf''' %
+         (remote_code_dir, script, args, job_name, job_name, job_name))
 
     for i in xrange(workers_per_instance):
         sudo('start %s N=%d' % (job_name, i))
 
     _set_instance_name(instance, job_name)
+
+    log()
 
 @parallel
 def log():
@@ -169,17 +177,22 @@ def log():
 @parallel
 def stop(workers_per_instance=None):
     job_name = _host_role()
+    instance = _host_instance()
     if workers_per_instance is None:
         workers_per_instance = ec2types[instance.instance_type]['compute_units']
 
     for i in xrange(workers_per_instance):
-        sudo('stop %s N=%d' % (job_name, i))
+        sudo('stop %s N=%d' % (job_name, i), warn_only=True, quiet=True)
 
     _set_instance_name(instance, 'idle')
 
 def info():
     i = _host_instance()
     print '%10s %10s' % (i.id, i.tags['Name'])
+
+def uncache():
+    if os.path.exists('instances.cache.pkl'):
+        os.unlink('instances.cache.pkl')
 
 __ec2 = None
 def _ec2():
@@ -214,7 +227,7 @@ def _get_roledefs():
     instances = _all_instances()
     defs = {}
     for i in instances:
-        role = i.tags['Name'].split('-', 1)[0]
+        role = i.tags['Name'].split('-', 1)[1]
         dns = i.public_dns_name
         if role in defs:
             defs[role].append(dns)
@@ -226,13 +239,14 @@ def _host_instance():
     return _instance_by_dns(env.host)
 
 def _host_role():
-    return _host_instance().tags['Name'].split('-', 1)[0]
+    return _host_instance().tags['Name'].split('-', 1)[1]
 
 def _instance_by_dns(dns):
     return __dns_instances.get(dns, None)
 
 def _set_instance_name(instance, name):
-    instance.tags['Name'] = 'worker-' + name
+    _ec2().create_tags(instance.id, {'Name': 'worker-' + name})
+    uncache()
 
 env.disable_known_hosts = True
 env.key_filename = 'job.pem'
