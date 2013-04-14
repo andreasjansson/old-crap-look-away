@@ -110,11 +110,22 @@ def new(instance_type, price, n=1):
         _ec2().create_tags(instance_id, {'Name': 'worker-idle', 'type': 'worker'})
 
 @parallel
-def start(role, code_dir='code', puppet_dir='puppet'):
+def build(puppet_dir='puppet'):
     sudo('apt-get update')
     sudo('apt-get -y install puppet')
 
-    # change Name tag to role for affected instances
+
+@parallel
+def run(code_dir, script, new_role='active', workers_per_instance=None)
+    # set workers_per_instance to the number of compute_units
+    # for the instance type if None
+
+    # partition data based on index, number of instances,
+    # and workers_per_instance
+
+    # change Name tag to new_role for affected instances
+
+    pass
 
 @runs_once
 def info():
@@ -140,5 +151,6 @@ def _all_instances(name=None):
 
 
 env.key_filename = 'job.pem'
-env.hosts = [i.public_dns_name for i in _all_instances('idle')]
+env.hosts = [i.public_dns_name for i in _all_instances()]
+env.roledefs = _get_roledefs()
 env.user = 'ubuntu'
