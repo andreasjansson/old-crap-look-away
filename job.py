@@ -76,7 +76,7 @@ class Job(object):
 
     def get_log(self):
         cf = pycassa.ColumnFamily(self.cassandra(), 'log')
-        return list(cf.get_range())
+        return list(cf.get_range(column_count=2000))
 
     def get_queue_length(self):
         return self.rabbitmq().queue_declare(self.name, passive=True).method.message_count
@@ -88,6 +88,10 @@ class Job(object):
             pika.ConnectionParameters(
                 host=config('rabbitmq')['host'],
                 port=int(config('rabbitmq')['port']),
+                credentials=pika.PlainCredentials(
+                    config('rabbitmq')['user'],
+                    config('rabbitmq')['pass'],
+                )
             ))
         self.rabbitmq_channel = self.rabbitmq_conn.channel()
         self.rabbitmq_channel.queue_declare(queue=self.name)
@@ -100,8 +104,11 @@ class Job(object):
 
         server = '%s:%s' % (config('cassandra')['host'],
                             int(config('cassandra')['port']))
+
+        credentials = {'username': config('cassandra')['user'],
+                       'password': config('cassandra')['pass']}
             
-        sys = pycassa.system_manager.SystemManager(server)
+        sys = pycassa.system_manager.SystemManager(server, credentials)
         if self.name not in sys.list_keyspaces():
             sys.create_keyspace(self.name,
                                 strategy_options={'replication_factor': '1'})
@@ -111,6 +118,8 @@ class Job(object):
                                      key_validation_class=pycassa.ASCII_TYPE,
                                      default_validation_class=pycassa.ASCII_TYPE)
 
-        self.cassandra_pool = pycassa.pool.ConnectionPool(self.name, [server])
+        self.cassandra_pool = pycassa.pool.ConnectionPool(
+            self.name, [server], credentials,
+        )
 
         return self.cassandra_pool
