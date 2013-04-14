@@ -56,7 +56,8 @@ def price():
 
     data = pandas.concat([pricing, types], axis=1, join='inner')
     data = data.sort(['linux_cost'])
-    data = data[['recent', 'median', 'stddev', 'max', 'compute_units', 'memory', 'linux_cost']]
+    data = data[['recent', 'median', 'stddev', 'max', 'compute_units',
+                 'memory', 'linux_cost']]
     
     print str(data)
 
@@ -65,15 +66,19 @@ def new(instance_type, price, n=1):
 
     uncache()
 
+    ubuntu1304_instance_store = 'ami-762d491f'
+    ubuntu1304_hvm = 'ami-08345061'
+
     print 'Creating spot requests'
     requests = _ec2().request_spot_instances(
         price=price,
-        image_id='ami-b8d147d1', # ubuntu 12.10, instance store
+        image_id=ubuntu1304_hvm if instance_type in ['cc2.8xlarge']
+            else ubuntu1304_instance_store,
         count=n,
         security_groups=['default'],
         instance_type=instance_type,
         placement='us-east-1b',
-        key_name=os.path.basename(env.key_filename).replace('.pem', '')
+        key_name=os.path.basename(env.key_filename).replace('.pem', ''),
     )
 
     request_ids = [r.id for r in requests]
@@ -186,9 +191,26 @@ def stop(workers_per_instance=None):
 
     _set_instance_name(instance, 'idle')
 
+@parallel
+def terminate():
+
+    uncache()
+
+    instance_id = _host_instance().id
+    print 'Terminating instance %s' % instance_id
+    
+    _ec2().terminate_instances([instance_id])
+
+@runs_once
 def info():
-    i = _host_instance()
-    print '%10s %10s' % (i.id, i.tags['Name'])
+
+    instances = _all_instances()
+    #reservations = _ec2().get_all_instances()
+    #instances = [i for r in reservations for i in r.instances]
+
+    for i in instances:
+        print '%10s %10s %10s %10s' % (
+            i.id, i.tags['Name'], i.instance_type, i.state)
 
 def uncache():
     if os.path.exists('instances.cache.pkl'):
@@ -212,8 +234,8 @@ def _all_instances(name=None):
             with open(cache, 'rb') as f:
                 __instances = cPickle.load(f)
         else:
-            filters = {'instance-state-name': 'running',
-                       'tag:type': 'worker'}
+            filters = {'tag:type': 'worker',
+                       'instance-state-name': 'running'}
             reservations = _ec2().get_all_instances(filters=filters)
             __instances = [i for r in reservations for i in r.instances]
             with open(cache, 'wb') as f:
