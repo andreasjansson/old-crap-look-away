@@ -1,0 +1,8 @@
+boto
+pymad
+numpy
+pika
+pycassa
+scikit-learn
+scipy
+matplotlib
