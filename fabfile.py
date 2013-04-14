@@ -9,10 +9,10 @@ import sys
 import os
 import fabric.contrib.project as project
 import cPickle
+from ec2types import ec2types
 
 @runs_once
 def price():
-    from ec2types import ec2types
     import pandas
     import numpy as np
 
@@ -122,6 +122,7 @@ def ssh():
 def build(puppet_dir='puppet', init_filename='init.pp'):
     sudo('apt-get update')
     sudo('apt-get -y install puppet')
+    sudo('chmod 777 /opt')
 
     if not puppet_dir.endswith('/'):
         puppet_dir += '/'
@@ -132,16 +133,49 @@ def build(puppet_dir='puppet', init_filename='init.pp'):
     sudo('puppet apply %s/%s' % (remote_puppet_dir, init_filename))
 
 @parallel
-def run(code_dir, script, new_role='active', workers_per_instance=None):
-    # set workers_per_instance to the number of compute_units
-    # for the instance type if None
+def run(code_dir, script, job_name='active', workers_per_instance=None):
+    instance = _host_instance()
 
-    # partition data based on index, number of instances,
-    # and workers_per_instance
+    if workers_per_instance is None:
+        workers_per_instance = ec2types[instance.instance_type]['compute_units']
 
-    # change Name tag to new_role for affected instances
+    if not code_dir.endswith('/'):
+        code_dir += '/'
 
-    pass
+    remote_code_dir = '/opt/' + job_name
+    project.rsync_project(local_dir=code_dir, remote_dir=remote_code_dir,
+                          ssh_opts='-o StrictHostKeyChecking=no')
+
+    sudo('chmod +x %s/%s' % (remote_code_dir, script))
+
+    sudo('''
+        echo 'instance $N
+              script
+                %s/%s >> /var/log/%s.stdout.log 2>> /var/log/%s.stderr.log
+              end script' > /etc/init/%s.conf
+         ''' % (remote_code_dir, script, job_name, job_name, job_name))
+
+    for i in xrange(workers_per_instance):
+        sudo('start %s N=%d' % (job_name, i))
+
+    _set_instance_name(instance, job_name)
+
+@parallel
+def log():
+    job_name = _host_role()
+    sudo('tail -f /var/log/%s.stdout.log /var/log/%s.stderr.log' %
+         (job_name, job_name))
+
+@parallel
+def stop(workers_per_instance=None):
+    job_name = _host_role()
+    if workers_per_instance is None:
+        workers_per_instance = ec2types[instance.instance_type]['compute_units']
+
+    for i in xrange(workers_per_instance):
+        sudo('stop %s N=%d' % (job_name, i))
+
+    _set_instance_name(instance, 'idle')
 
 def info():
     i = _host_instance()
@@ -191,8 +225,14 @@ def _get_roledefs():
 def _host_instance():
     return _instance_by_dns(env.host)
 
+def _host_role():
+    return _host_instance().tags['Name'].split('-', 1)[0]
+
 def _instance_by_dns(dns):
     return __dns_instances.get(dns, None)
+
+def _set_instance_name(instance, name):
+    instance.tags['Name'] = 'worker-' + name
 
 env.disable_known_hosts = True
 env.key_filename = 'job.pem'

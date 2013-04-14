@@ -2,3 +2,6 @@
 \#*
 .#*
 *~
+puppet/modules/job/files/.*
+job.pem
+instances.cache.pkl

@@ -15,3 +15,4 @@ pip::install {'pika': }
 pip::install {'pycassa': }
 pip::install {'scikit-learn': require => Package['python-numpy'], }
 
+include job
