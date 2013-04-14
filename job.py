@@ -67,7 +67,7 @@ class Job(object):
 
     def store(self, key, value):
         cf = pycassa.ColumnFamily(self.cassandra(), 'data')
-        cf.insert(key, json.dumps(value))
+        cf.insert(key, value)
 
     def clear(self):
         self.rabbitmq().queue_delete(queue=self.name)
@@ -112,7 +112,10 @@ class Job(object):
         if self.name not in sys.list_keyspaces():
             sys.create_keyspace(self.name,
                                 strategy_options={'replication_factor': '1'})
-            sys.create_column_family(self.name, 'data')
+            sys.create_column_family(self.name, 'data',
+                                     key_validation_class=pycassa.ASCII_TYPE,
+                                     comparator_type=pycassa.ASCII_TYPE,
+                                     default_validation_class=pycassa.BYTES_TYPE)
             sys.create_column_family(self.name, 'log',
                                      comparator_type=pycassa.TIME_UUID_TYPE,
                                      key_validation_class=pycassa.ASCII_TYPE,
