@@ -1,7 +1,6 @@
 import numpy as np
 import math
 import scipy
-import matplotlib.pyplot as plt
 import scipy.misc
 import scipy.weave
 import sklearn.tree
@@ -36,6 +35,7 @@ class Spectrogram(object):
         self.height, self.length = self.data.shape
 
     def plot(self, *args, **kwargs):
+        import matplotlib.pyplot as plt
         fig, ax = plt.subplots()
         self.plot_axes(*args, **kwargs)(ax)
         fig.show()

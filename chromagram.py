@@ -1,7 +1,6 @@
 import numpy as np
 import math
 import scipy
-import matplotlib.pyplot as plt
 
 class Chromagram(object):
 
@@ -32,6 +31,7 @@ class Chromagram(object):
         self.data = self.data / self.data.max()
 
     def plot(self):
+        import matplotlib.pyplot as plt
         fig, ax = plt.subplots()
         self.plot_axes()(ax)
         fig.show()

@@ -1,16 +1,21 @@
 import boto.ec2
 import boto
 from fabric.api import *
+import fabric
 import datetime
-import pandas
-import numpy as np
-from ec2types import ec2types
 import signal
 import time
 import sys
+import os
+import fabric.contrib.project as project
+import cPickle
 
 @runs_once
 def price():
+    from ec2types import ec2types
+    import pandas
+    import numpy as np
+
     now = datetime.datetime.now()
     one_day_ago = now - datetime.timedelta(days=1)
     price_history = _ec2().get_spot_price_history(
@@ -31,15 +36,15 @@ def price():
             latest_time[t] = item.timestamp
             latest_price[t] = item.price
         else:
-            if most_recent_time[t] < item.timestamp:
-                most_recent_time[t] = item.timestamp
-                most_recent_price[t] = item.price
+            if latest_time[t] < item.timestamp:
+                latest_time[t] = item.timestamp
+                latest_price[t] = item.price
 
         data[t].append(item.price)
 
     for t, prices in data.iteritems():
         item = {}
-        item['recent'] = np.round(most_recent_price[t], 3)
+        item['recent'] = np.round(latest_price[t], 3)
         item['median'] = np.round(np.median(prices), 3)
         item['stddev'] = np.round(np.std(prices), 3)
         item['max'] = np.round(np.max(prices), 3)
@@ -81,7 +86,7 @@ def new(instance_type, price, n=1):
 
         instance_ids = [r.instance_id for r in requests if r.instance_id is not None]
 
-        if terminate and len(instance_ids) > 0:
+        if terminate and instance_ids:
             print 'Terminating instances'
             _ec2().terminate_instances(instance_ids)
 
@@ -102,21 +107,32 @@ def new(instance_type, price, n=1):
         ', '.join([r.status.code for r in requests]))
 
     active_requests = filter(lambda r: r.state == 'active', requests)
-    if len(active_requests) == 0:
+    if not active_requests:
         print 'No requests succeeded, giving up'
 
     instance_ids = [r.instance_id for r in active_requests]
     for instance_id in instance_ids:
-        _ec2().create_tags(instance_id, {'Name': 'worker-idle', 'type': 'worker'})
+        _ec2().create_tags(instance_id, {'Name': 'worker-idle',
+                                         'type': 'worker'})
+
+def ssh():
+    local('ssh -i %s %s@%s' % (env.key_filename, env.user, env.host))
 
 @parallel
-def build(puppet_dir='puppet'):
+def build(puppet_dir='puppet', init_filename='init.pp'):
     sudo('apt-get update')
     sudo('apt-get -y install puppet')
 
+    if not puppet_dir.endswith('/'):
+        puppet_dir += '/'
+    remote_puppet_dir = '/etc/puppet'
+    sudo('chown -R %s %s' % (env.user, remote_puppet_dir))
+    project.rsync_project(local_dir=puppet_dir, remote_dir=remote_puppet_dir,
+                          ssh_opts='-o StrictHostKeyChecking=no')
+    sudo('puppet apply %s/%s' % (remote_puppet_dir, init_filename))
 
 @parallel
-def run(code_dir, script, new_role='active', workers_per_instance=None)
+def run(code_dir, script, new_role='active', workers_per_instance=None):
     # set workers_per_instance to the number of compute_units
     # for the instance type if None
 
@@ -127,30 +143,61 @@ def run(code_dir, script, new_role='active', workers_per_instance=None)
 
     pass
 
-@runs_once
 def info():
-    instances = _all_instances()
-    for i in instances:
-        print '%10s %10s' % (i.id, i.tags['Name'])
+    i = _host_instance()
+    print '%10s %10s' % (i.id, i.tags['Name'])
 
-_ec2_connection = None
+__ec2 = None
 def _ec2():
-    global _ec2_connection
-    if _ec2_connection is None:
-        _ec2_connection = boto.ec2.connection.EC2Connection()
-    return _ec2_connection
+    global __ec2
+    if __ec2 is None:
+        __ec2 = boto.ec2.connection.EC2Connection()
+    return __ec2
 
+__instances = None
+__dns_instances = None
 def _all_instances(name=None):
-    filters = {'tag:type': 'worker'}
+    global __instances
+    global __dns_instances
+    if __instances is None:
+        cache = 'instances.cache.pkl'
+        if os.path.exists(cache):
+            with open(cache, 'rb') as f:
+                __instances = cPickle.load(f)
+        else:
+            filters = {'instance-state-name': 'running',
+                       'tag:type': 'worker'}
+            reservations = _ec2().get_all_instances(filters=filters)
+            __instances = [i for r in reservations for i in r.instances]
+            with open(cache, 'wb') as f:
+                cPickle.dump(__instances, f)
+        __dns_instances = {i.public_dns_name: i for i in __instances}
     if name:
-        filters['tag:Name'] = 'worker-' + name
-    filters['instance-state-name'] = 'running'
-    reservations = _ec2().get_all_instances(filters=filters)
-    instances = [i for r in reservations for i in r.instances]
-    return instances
+        return [i for i in instances if i.tags['Name'] == 'worker-' + name]
+    return __instances
 
+def _get_roledefs():
+    instances = _all_instances()
+    defs = {}
+    for i in instances:
+        role = i.tags['Name'].split('-', 1)[0]
+        dns = i.public_dns_name
+        if role in defs:
+            defs[role].append(dns)
+        else:
+            defs[role] = [dns]
+    return defs
 
+def _host_instance():
+    return _instance_by_dns(env.host)
+
+def _instance_by_dns(dns):
+    return __dns_instances.get(dns, None)
+
+env.disable_known_hosts = True
 env.key_filename = 'job.pem'
-env.hosts = [i.public_dns_name for i in _all_instances()]
+if not env.hosts:
+    env.hosts = [i.public_dns_name for i in _all_instances()]
 env.roledefs = _get_roledefs()
 env.user = 'ubuntu'
+
