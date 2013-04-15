@@ -149,9 +149,6 @@ def notes_quantise_pitch_class(note_bins, octave_steps, sample_rate, window_size
 # assuming argmax ioi = beat
 # returns matrix with columns [time, klang_1, klang_2, [...], klang_n]
 def get_nklangs(notes, nbeats, n, threshold=.5):
-    if not notes:
-        return None
-
     iois = notes[1:, 0] - notes[:-1, 0]
     beat = np.argmax(np.bincount(iois))
     bars = []
@@ -244,10 +241,10 @@ def get_training_example(filename):
     path = monophonic_maxima_path(s.data)
     notes = notes_from_path(path)
 
-    if not notes:
+    if not len(notes):
         return cls, None
 
-    steps = 24
+    steps = 12
     pitch_classes = notes_quantise_pitch_class(notes[:, 2], steps, s.sample_rate, s.window_size)
     notes[:,2] = pitch_classes
     nklangs = get_nklangs(notes, 4, 2)
@@ -282,8 +279,16 @@ def dt_data(job_data):
     makams = []
     for i, (key, fv) in enumerate(job_data.iteritems()):
         examples[i, :] = fv
-        makams.append(key)
+        makams.append(class_from_filename(key))
 
     makams = np.unique(makams, return_inverse=True)[1]
 
     return examples, makams
+
+def dt_accuracy(examples, makams, training_ratio=.7):
+    clf = sklearn.tree.DecisionTreeClassifier(min_samples_leaf=10)
+    split = int(len(makams) * training_ratio)
+    clf.fit(examples[0:split], makams[0:split])
+    predicted = clf.predict(examples[split:])
+    actual = makams[split:]
+    return sum(predicted == actual) / float(len(predicted))

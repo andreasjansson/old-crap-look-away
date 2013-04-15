@@ -9,7 +9,7 @@ import job
 
 def do_work(worker, data):
     c, fv = spectrogram.get_training_example(data['path'])
-    if not fv:
+    if fv is None:
         return
 
     name = os.path.splitext(os.path.basename(data['path']))[0]

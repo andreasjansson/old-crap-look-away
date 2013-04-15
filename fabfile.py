@@ -274,10 +274,14 @@ def _set_instance_name(instance, name):
     _ec2().create_tags(instance.id, {'Name': 'worker-' + name})
     uncache()
 
+env.roledefs = _get_roledefs()
 env.disable_known_hosts = True
 env.key_filename = 'job.pem'
+
 if not env.hosts:
-    env.hosts = [i.public_dns_name for i in _all_instances()]
-env.roledefs = _get_roledefs()
+    if env.roles:
+        env.hosts = [i for r in env.roles for i in env.roledefs[r]]
+    if not env.hosts:
+        env.hosts = [i.public_dns_name for i in _all_instances()]
 env.user = 'ubuntu'
 
