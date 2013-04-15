@@ -141,12 +141,14 @@ def build(puppet_dir='puppet', init_filename='init.pp'):
     sudo('puppet apply %s/%s' % (remote_puppet_dir, init_filename))
 
 @parallel
-def run(code_dir, script, args='', job_name='active', workers_per_instance=None,
-        exclude=['.git', 'puppet']):
+def run(job_name, script, args='', code_dir='.', workers_per_instance=None,
+        exclude=['.git', 'puppet', '*.pyc']):
     instance = _host_instance()
 
     if workers_per_instance is None:
         workers_per_instance = ec2types[instance.instance_type]['compute_units']
+    else:
+        workers_per_instance = int(workers_per_instance)
 
     if not code_dir.endswith('/'):
         code_dir += '/'
@@ -162,15 +164,16 @@ def run(code_dir, script, args='', job_name='active', workers_per_instance=None,
     sudo('''echo '
 instance $N
 script
-    %s/%s %s >> /var/log/%s.stdout.log 2>> /var/log/%s.stderr.log
+    %s/%s %s %s >> /var/log/%s.stdout.log 2>> /var/log/%s.stderr.log
 end script' > /etc/init/%s.conf''' %
-         (remote_code_dir, script, args, job_name, job_name, job_name))
+         (remote_code_dir, script, job_name, args, job_name, job_name, job_name))
 
     for i in xrange(workers_per_instance):
         sudo('start %s N=%d' % (job_name, i))
 
     _set_instance_name(instance, job_name)
 
+    time.sleep(2)
     log()
 
 @parallel

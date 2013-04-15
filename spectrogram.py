@@ -132,9 +132,6 @@ def notes_from_path(path, threshold=1):
         if x > 0:
             current.append(x)
 
-    if mean > 0:
-        notes = np.vstack((notes, [start_time, t, round(mean)]))
-
     notes = notes.astype(int)
     return notes
 

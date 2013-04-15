@@ -1,7 +1,6 @@
 import urllib
 import tempfile
 import os
-import matplotlib.pyplot as plt
 import subprocess
 
 def get_extension(path):
@@ -26,6 +25,7 @@ def download(path):
     return temp
 
 def multiplot(plot_functions):
+    import matplotlib.pyplot as plt
     fig, axes = plt.subplots(len(plot_functions))
     for ax, function in zip(axes, plot_functions):
         function(ax)

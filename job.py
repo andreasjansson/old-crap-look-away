@@ -56,8 +56,8 @@ class Job(object):
 
     def log(self, message):
         print message
-        cf = pycassa.ColumnFamily(self.cassandra(), 'log')
-        cf.insert(self.hostname, {datetime.datetime.utcnow(): message})
+        self.cassandra('log').insert(
+            self.hostname, {datetime.datetime.utcnow(): message})
 
     def log_exception(self, exception):
         exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -66,20 +66,26 @@ class Job(object):
             exc_type, fname, exc_tb.tb_lineno))
 
     def store(self, key, value):
-        cf = pycassa.ColumnFamily(self.cassandra(), 'data')
-        cf.insert(key, value)
+        self.cassandra('data').insert(key, {'data': value})
 
     def clear(self):
         self.rabbitmq().queue_delete(queue=self.name)
-        pycassa.ColumnFamily(self.cassandra(), 'data').truncate()
-        pycassa.ColumnFamily(self.cassandra(), 'log').truncate()
+        self.cassandra('data').truncate()
+        self.cassandra('log').truncate()
 
-    def get_log(self):
-        cf = pycassa.ColumnFamily(self.cassandra(), 'log')
-        return list(cf.get_range(column_count=2000))
+    def get_log(self, max_count=2000):
+        return list(self.cassandra('log')
+                    .get_range(column_count=max_count))
+
+    def get_data(self):
+        data = {}
+        for key, columns in self.cassandra('data').get_range():
+            data[key] = columns['data']
+        return data
 
     def get_queue_length(self):
-        return self.rabbitmq().queue_declare(self.name, passive=True).method.message_count
+        return self.rabbitmq().queue_declare(
+            self.name, passive=True).method.message_count
 
     def rabbitmq(self):
         if self.rabbitmq_channel is not None:
@@ -98,31 +104,31 @@ class Job(object):
 
         return self.rabbitmq_channel
 
-    def cassandra(self):
-        if self.cassandra_pool is not None:
-            return self.cassandra_pool
+    def cassandra(self, column_family=None):
+        if self.cassandra_pool is None:
+            server = '%s:%s' % (config('cassandra')['host'],
+                                int(config('cassandra')['port']))
 
-        server = '%s:%s' % (config('cassandra')['host'],
-                            int(config('cassandra')['port']))
+            credentials = {'username': config('cassandra')['user'],
+                           'password': config('cassandra')['pass']}
 
-        credentials = {'username': config('cassandra')['user'],
-                       'password': config('cassandra')['pass']}
-            
-        sys = pycassa.system_manager.SystemManager(server, credentials)
-        if self.name not in sys.list_keyspaces():
-            sys.create_keyspace(self.name,
-                                strategy_options={'replication_factor': '1'})
-            sys.create_column_family(self.name, 'data',
-                                     key_validation_class=pycassa.ASCII_TYPE,
-                                     comparator_type=pycassa.ASCII_TYPE,
-                                     default_validation_class=pycassa.BYTES_TYPE)
-            sys.create_column_family(self.name, 'log',
-                                     comparator_type=pycassa.TIME_UUID_TYPE,
-                                     key_validation_class=pycassa.ASCII_TYPE,
-                                     default_validation_class=pycassa.ASCII_TYPE)
+            sys = pycassa.system_manager.SystemManager(server, credentials)
+            if self.name not in sys.list_keyspaces():
+                sys.create_keyspace(self.name,
+                                    strategy_options={'replication_factor': '1'})
+                sys.create_column_family(self.name, 'data',
+                                         key_validation_class=pycassa.ASCII_TYPE,
+                                         comparator_type=pycassa.ASCII_TYPE,
+                                         default_validation_class=pycassa.BYTES_TYPE)
+                sys.create_column_family(self.name, 'log',
+                                         comparator_type=pycassa.TIME_UUID_TYPE,
+                                         key_validation_class=pycassa.ASCII_TYPE,
+                                         default_validation_class=pycassa.ASCII_TYPE)
 
-        self.cassandra_pool = pycassa.pool.ConnectionPool(
-            self.name, [server], credentials,
-        )
+            self.cassandra_pool = pycassa.pool.ConnectionPool(
+                self.name, [server], credentials,
+            )
 
+        if column_family:
+            return pycassa.ColumnFamily(self.cassandra_pool, column_family)
         return self.cassandra_pool
