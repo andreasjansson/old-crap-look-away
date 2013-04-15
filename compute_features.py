@@ -1,7 +1,6 @@
-#!/usr/bin/python
+#!/usr/bin/python -u
 
 import spectrogram
-import cPickle
 import os
 import time
 import sys
@@ -10,8 +9,10 @@ import job
 
 def do_work(worker, data):
     c, fv = spectrogram.get_training_example(data['path'])
+    if not fv:
+        return
+
     name = os.path.splitext(os.path.basename(data['path']))[0]
-    fv = cPickle.dumps(fv)
     worker.store(name, fv)
     worker.log('Analysed %s' % name)
 

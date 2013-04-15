@@ -6,6 +6,7 @@ import os
 import sys
 import datetime
 import socket
+import cPickle
 
 _config = None
 def config(section):
@@ -66,7 +67,7 @@ class Job(object):
             exc_type, fname, exc_tb.tb_lineno))
 
     def store(self, key, value):
-        self.cassandra('data').insert(key, {'data': value})
+        self.cassandra('data').insert(key, {'data': cPickle.dumps(value)})
 
     def clear(self):
         self.rabbitmq().queue_delete(queue=self.name)
@@ -80,8 +81,15 @@ class Job(object):
     def get_data(self):
         data = {}
         for key, columns in self.cassandra('data').get_range():
-            data[key] = columns['data']
+            data[key] = cPickle.loads(columns['data'])
         return data
+
+    def get_data_count(self):
+        count = 0
+        for _ in self.cassandra('data').get_range(
+            column_count=0, filter_empty=False):
+            count +=1
+        return count
 
     def get_queue_length(self):
         return self.rabbitmq().queue_declare(

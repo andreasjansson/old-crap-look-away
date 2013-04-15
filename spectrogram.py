@@ -149,6 +149,9 @@ def notes_quantise_pitch_class(note_bins, octave_steps, sample_rate, window_size
 # assuming argmax ioi = beat
 # returns matrix with columns [time, klang_1, klang_2, [...], klang_n]
 def get_nklangs(notes, nbeats, n, threshold=.5):
+    if not notes:
+        return None
+
     iois = notes[1:, 0] - notes[:-1, 0]
     beat = np.argmax(np.bincount(iois))
     bars = []
@@ -237,17 +240,20 @@ def get_training_example(filename):
 
     a = audio.Audio(filename)
     s = Spectrogram(a.signal[:, 0], a.sample_rate, 8192, 2048)
+    cls = class_from_filename(filename)
     path = monophonic_maxima_path(s.data)
     notes = notes_from_path(path)
+
+    if not notes:
+        return cls, None
+
     steps = 24
     pitch_classes = notes_quantise_pitch_class(notes[:, 2], steps, s.sample_rate, s.window_size)
     notes[:,2] = pitch_classes
     nklangs = get_nklangs(notes, 4, 2)
     fv = nklangs_to_feature_vector(nklangs, steps)
 
-    c = class_from_filename(filename)
-
-    return c, fv
+    return cls, fv
 
 def get_training_data(directory, nfeatures):
     filenames = glob.glob(directory + '/*.pkl')
@@ -269,3 +275,15 @@ def plot_decision_tree(clf):
     graph = pydot.graph_from_dot_data(dot_data.getvalue()) 
     graph.write_png('tmp.png') 
     os.system('sxiv tmp.png')
+
+def dt_data(job_data):
+    nfeatures = len(job_data.itervalues().next())
+    examples = np.zeros((len(job_data), nfeatures))
+    makams = []
+    for i, (key, fv) in enumerate(job_data.iteritems()):
+        examples[i, :] = fv
+        makams.append(key)
+
+    makams = np.unique(makams, return_inverse=True)[1]
+
+    return examples, makams

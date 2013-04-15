@@ -173,13 +173,12 @@ end script' > /etc/init/%s.conf''' %
 
     _set_instance_name(instance, job_name)
 
-    time.sleep(2)
     log()
 
 @parallel
 def log():
     job_name = _host_role()
-    sudo('tail -f /var/log/%s.stdout.log /var/log/%s.stderr.log' %
+    sudo('tail -n0 -f /var/log/%s.stdout.log /var/log/%s.stderr.log' %
          (job_name, job_name))
 
 @parallel
@@ -188,6 +187,8 @@ def stop(workers_per_instance=None):
     instance = _host_instance()
     if workers_per_instance is None:
         workers_per_instance = ec2types[instance.instance_type]['compute_units']
+    else:
+        workers_per_instance = int(workers_per_instance)
 
     for i in xrange(workers_per_instance):
         sudo('stop %s N=%d' % (job_name, i), warn_only=True, quiet=True)
@@ -196,7 +197,6 @@ def stop(workers_per_instance=None):
 
 @parallel
 def terminate():
-
     uncache()
 
     instance_id = _host_instance().id
@@ -270,6 +270,7 @@ def _instance_by_dns(dns):
     return __dns_instances.get(dns, None)
 
 def _set_instance_name(instance, name):
+    instance.tags['Name'] = 'worker-' + name
     _ec2().create_tags(instance.id, {'Name': 'worker-' + name})
     uncache()
 

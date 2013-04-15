@@ -28,7 +28,8 @@ class Audio(object):
         elif ext == '.wav':
             self._read_wav()
         else:
-            raise NotImplementedError('Unknown file extension')
+            raise NotImplementedError('Unknown file extension: %s (%s)' %
+                                      (ext, path))
 
     def __del__(self):
         if self.remote_path:
