@@ -206,14 +206,19 @@ def terminate():
 
 @runs_once
 def info():
+    import dateutil.parser
+    import dateutil.tz
 
     instances = _all_instances()
     #reservations = _ec2().get_all_instances()
     #instances = [i for r in reservations for i in r.instances]
 
     for i in instances:
-        print '%10s %10s %10s %10s' % (
-            i.id, i.tags['Name'], i.instance_type, i.state)
+        launch_time = dateutil.parser.parse(i.launch_time)
+        launch_time = launch_time.astimezone(datetime.tz.tzlocal())
+        print '%10s %10s %10s %10s %10s' % (
+            i.id, i.tags['Name'], i.instance_type, i.state,
+            launch_time.strftime('%Y-%m-%d %H:%M:%S'))
 
 def uncache():
     if os.path.exists('instances.cache.pkl'):
