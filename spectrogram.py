@@ -242,15 +242,16 @@ def get_training_example(filename):
     notes = notes_from_path(path)
 
     if not len(notes):
-        return cls, None
+        return notes, cls, None
 
     steps = 12
     pitch_classes = notes_quantise_pitch_class(notes[:, 2], steps, s.sample_rate, s.window_size)
-    notes[:,2] = pitch_classes
-    nklangs = get_nklangs(notes, 4, 2)
+    pc_notes = notes.copy()
+    pc_notes[:,2] = pitch_classes
+    nklangs = get_nklangs(pc_notes, 4, 2)
     fv = nklangs_to_feature_vector(nklangs, steps)
 
-    return cls, fv
+    return notes, cls, fv
 
 def get_training_data(directory, nfeatures):
     filenames = glob.glob(directory + '/*.pkl')
@@ -292,3 +293,18 @@ def dt_accuracy(examples, makams, training_ratio=.7):
     predicted = clf.predict(examples[split:])
     actual = makams[split:]
     return sum(predicted == actual) / float(len(predicted))
+
+def data_by_makam(data):
+    by_makam = {}
+    for name, value in data.iteritems():
+        makam = class_from_filename(name)
+        if makam in by_makam:
+            by_makam[makam].append(value)
+        else:
+            by_makam[makam] = [value]
+
+    return by_makam
+
+def plot_notes(notes):
+    import matplotlib.pyplot as plt
+    plt.step(notes[:,0], notes[:,2], where='post')

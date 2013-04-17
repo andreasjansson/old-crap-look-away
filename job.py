@@ -78,9 +78,10 @@ class Job(object):
         return list(self.cassandra('log')
                     .get_range(column_count=max_count))
 
-    def get_data(self):
+    def get_data(self, row_count=None):
         data = {}
-        for key, columns in self.cassandra('data').get_range():
+        for key, columns in self.cassandra('data').get_range(
+            row_count=row_count):
             data[key] = cPickle.loads(columns['data'])
         return data
 
@@ -134,7 +135,7 @@ class Job(object):
                                          default_validation_class=pycassa.ASCII_TYPE)
 
             self.cassandra_pool = pycassa.pool.ConnectionPool(
-                self.name, [server], credentials,
+                self.name, [server], credentials, timeout=60
             )
 
         if column_family:

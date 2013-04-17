@@ -6,7 +6,7 @@ import os
 def main(job_name):
     publisher = job.Job(job_name)
 
-    mp3_paths = s3.ls('andreasjansson', 'makams/mp3')
+    mp3_paths = s3.ls('andreasjansson', 'makams/mp3', r'\.mp3')
 
     for path in mp3_paths:
         path = s3.url('andreasjansson', path)
