@@ -189,6 +189,19 @@ def nklangs_to_feature_vector(nklangs, octave_steps):
     length = (octave_steps * (octave_steps ** n - 1) / (octave_steps - 1))
     return pad1d(vector, 0, length)
 
+# TODO UPNEXT plt.hist of nklang components
+def feature_vector_to_nklangs(fv, octave_steps, n):
+    indices = filter(lambda i: fv[i] > 0, fv.argsort())
+    indices.reverse()
+    nklangs = np.zeros((len(indices), n + 1))
+    for order, i in enumerate(indices):
+        x = fv[i]
+        nklangs[order, 0] = x
+        for j in range(n):
+            nklangs[order, j + 1] = i % octave_steps
+            i = int(i / octave_steps)
+    return nklangs
+
 def amplitude(spectrogram_data, smooth_width=50):
     window = np.hanning(smooth_width)
     window /= window.sum()
@@ -274,11 +287,17 @@ def plot_decision_tree(clf):
     graph.write_png('tmp.png') 
     os.system('sxiv tmp.png')
 
-def dt_data(job_data):
-    nfeatures = len(job_data.itervalues().next())
+def dt_data(job_data, normalise=True):
+    nfeatures = len(job_data.itervalues().next()['fv'])
     examples = np.zeros((len(job_data), nfeatures))
     makams = []
-    for i, (key, fv) in enumerate(job_data.iteritems()):
+    for i, (key, value) in enumerate(job_data.iteritems()):
+        fv = value['fv']
+        if normalise:
+            asdf()
+            fv = fv.astype(float)
+            fv /= sum(fv)
+
         examples[i, :] = fv
         makams.append(class_from_filename(key))
 
@@ -287,17 +306,24 @@ def dt_data(job_data):
     return examples, makams
 
 def dt_accuracy(examples, makams, training_ratio=.7):
-    clf = sklearn.tree.DecisionTreeClassifier(min_samples_leaf=10)
+    clf = sklearn.tree.DecisionTreeClassifier(min_samples_leaf=20)
     split = int(len(makams) * training_ratio)
     clf.fit(examples[0:split], makams[0:split])
     predicted = clf.predict(examples[split:])
     actual = makams[split:]
     return sum(predicted == actual) / float(len(predicted))
 
-def data_by_makam(data):
+def data_by_makam(data, normalise=True):
     by_makam = {}
     for name, value in data.iteritems():
         makam = class_from_filename(name)
+
+        if normalise:
+            fv = value['fv']
+            fv = fv.astype(float)
+            fv /= sum(fv)
+            value['fv'] = fv
+
         if makam in by_makam:
             by_makam[makam].append(value)
         else:
