@@ -209,15 +209,15 @@ def info():
     import dateutil.parser
     import dateutil.tz
 
-    instances = _all_instances()
-    #reservations = _ec2().get_all_instances()
-    #instances = [i for r in reservations for i in r.instances]
+    #instances = _all_instances()
+    reservations = _ec2().get_all_instances()
+    instances = [i for r in reservations for i in r.instances]
 
     for i in instances:
         launch_time = dateutil.parser.parse(i.launch_time)
-        launch_time = launch_time.astimezone(datetime.tz.tzlocal())
-        print '%10s %10s %10s %10s %10s' % (
-            i.id, i.tags['Name'], i.instance_type, i.state,
+        launch_time = launch_time.astimezone(dateutil.tz.tzlocal())
+        print '%10s %15s %15s %15s %10s %20s' % (
+            i.id, i.ip_address, i.tags['Name'], i.instance_type, i.state,
             launch_time.strftime('%Y-%m-%d %H:%M:%S'))
 
 def uncache():
@@ -248,7 +248,7 @@ def _all_instances(name=None):
             __instances = [i for r in reservations for i in r.instances]
             with open(cache, 'wb') as f:
                 cPickle.dump(__instances, f)
-        __dns_instances = {i.public_dns_name: i for i in __instances}
+        __dns_instances = {i.ip_address: i for i in __instances}
     if name:
         return [i for i in instances if i.tags['Name'] == 'worker-' + name]
     return __instances
@@ -258,7 +258,7 @@ def _get_roledefs():
     defs = {}
     for i in instances:
         role = i.tags['Name'].split('-', 1)[1]
-        dns = i.public_dns_name
+        dns = i.ip_address
         if role in defs:
             defs[role].append(dns)
         else:
@@ -287,6 +287,6 @@ if not env.hosts:
     if env.roles:
         env.hosts = [i for r in env.roles for i in env.roledefs[r]]
     if not env.hosts:
-        env.hosts = [i.public_dns_name for i in _all_instances()]
+        env.hosts = [i.ip_address for i in _all_instances()]
 env.user = 'ubuntu'
 
