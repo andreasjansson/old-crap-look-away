@@ -229,7 +229,6 @@ def dt_data(job_data, normalise=True):
     for i, (key, value) in enumerate(job_data.iteritems()):
         fv = value['fv']
         if normalise:
-            asdf()
             fv = fv.astype(float)
             fv /= sum(fv)
 
@@ -240,7 +239,26 @@ def dt_data(job_data, normalise=True):
 
     return examples, makams
 
+def dt_chr_data(data, octave_steps=53):
+    examples = np.zeros((len(data), octave_steps))
+    makams = []
+    for i, (key, value) in enumerate(data.iteritems()):
+        notes = value['notes']
+        chromagram = notes_to_chromagram(notes, octave_steps, True)
+        examples[i, :] = chromagram
+        makams.append(class_from_filename(key))
+
+    makams = np.unique(makams, return_inverse=True)[1]
+
+    return examples, makams
+
 def dt_accuracy(examples, makams, training_ratio=.7):
+
+    indices = np.arange(len(makams))
+    np.random.shuffle(indices)
+    examples = examples[indices,:]
+    makams = makams[indices]
+
     clf = sklearn.tree.DecisionTreeClassifier(min_samples_leaf=20)
     split = int(len(makams) * training_ratio)
     clf.fit(examples[0:split], makams[0:split])
@@ -322,19 +340,20 @@ def plot_notes(notes):
     plt.step(notes[:,0], notes[:,2], where='post')
 
 # assumes notes have pitchese
-def notes_to_chromagram(notes, octave_steps):
+def notes_to_chromagram(notes, octave_steps, normalise=False):
     n = notes[:,2]
     n = np.mod(n.astype(int), octave_steps)
     c = np.bincount(n, minlength=octave_steps)
-    #c = c / float(sum(c))
+    if normalise:
+        c = c / float(sum(c))
     return c
 
 def play_name(name):
     os.system('mpg123 http://andreasjansson.s3.amazonaws.com/makams/mp3/%s.mp3' % name)
 
-def data_prune_singles(data):
+def data_prune_tiny(data, n=5):
     dm = data_by_makam(data)
-    singles = [k for k, v in dm.iteritems() if len(v) < 5]
+    singles = [k for k, v in dm.iteritems() if len(v) < n]
     return {k: v for k,v in data.iteritems() if class_from_filename(k) not in singles}
 
 def data_to_sequences(data, octave_steps=53):
