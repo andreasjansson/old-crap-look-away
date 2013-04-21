@@ -1,9 +1,10 @@
 import numpy as np
 
 class DTNode(object):
-    def __init__(self, shapelet, split_point, left, right):
-        self.shapelet = shapelet
+    def __init__(self, shapelet, split_point, classes, left, right):
+        self.shapelet = list(shapelet)
         self.split_point = split_point
+        self.classes = classes
         self.left = left
         self.right = right
 
@@ -11,8 +12,8 @@ class DTNode(object):
         before = '| ' * (level - 1)
         if level > 0:
             before = before + '| ' * level + '\n' + before + '+-'
-        s = '%s%s (%f)\n' % (before, str(self.shapelet),
-                             self.split_point)
+        s = '%s%s (%.3f)\n' % (before, str(self.shapelet),
+                                       entropy(self.classes))
         s += self.left.print_node(level + 1)
         s += self.right.print_node(level + 1)
         return s
@@ -24,16 +25,16 @@ class DTNode(object):
         return self.__str__()
 
 class DTLeaf(object):
-    def __init__(self, cls, hist):
+    def __init__(self, cls, classes):
         self.cls = cls
-        self.hist = hist
+        self.classes = classes
 
     def print_node(self, level=0):
-        before = '| ' * level + '\n' + '| ' * (level - 1) + '+-'
-        return '%s%d\n' % (before, self.cls)
+        before = '| ' * level + '\n' + '| ' * (level - 1) + '+-> '
+        return '%s%s\n' % (before, str(self))
 
     def __str__(self):
-        return '%s' % self.cls
+        return '%s (%.3f)' % (self.cls, entropy(self.classes))
 
     def __repr__(self):
         return self.__str__()
@@ -42,10 +43,10 @@ def build_decision_tree(data, min_len, max_len, max_entropy=0):
     classes = [d[0] for d in data]
     if entropy(classes) <= max_entropy:
         class_hist = np.bincount(classes)
-        return DTLeaf(np.argmax(class_hist), class_hist)
+        return DTLeaf(np.argmax(class_hist), classes)
     shapelet, split_point = find_shapelet(data, min_len, max_len)
     data1, data2 = split_by_shapelet(data, shapelet, split_point)
-    return DTNode(shapelet, split_point,
+    return DTNode(shapelet, split_point, classes,
                   build_decision_tree(data1, min_len, max_len, max_entropy),
                   build_decision_tree(data2, min_len, max_len, max_entropy))
 
