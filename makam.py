@@ -363,5 +363,8 @@ def data_to_sequences(data, octave_steps=53):
         notes = np.mod(value['notes'][:,2].astype(int), octave_steps)
         sequences.append(notes)
         makams.append(class_from_filename(name))
-    return makams, sequences
 
+    makams = np.unique(makams, return_inverse=True)[1]
+    data = zip(makams, sequences)
+
+    return makams, data

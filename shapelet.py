@@ -1,4 +1,6 @@
 import numpy as np
+import scipy.weave
+import os
 
 class DTNode(object):
     def __init__(self, shapelet, split_point, classes, left, right):
@@ -39,6 +41,7 @@ class DTLeaf(object):
     def __repr__(self):
         return self.__str__()
 
+# data = zip(classes, examples)
 def build_decision_tree(data, min_len, max_len, max_entropy=0):
     classes = [d[0] for d in data]
     if entropy(classes) <= max_entropy:
@@ -46,6 +49,11 @@ def build_decision_tree(data, min_len, max_len, max_entropy=0):
         return DTLeaf(np.argmax(class_hist), classes)
     shapelet, split_point = find_shapelet(data, min_len, max_len)
     data1, data2 = split_by_shapelet(data, shapelet, split_point)
+
+    if len(data1) == 0 or len(data2) == 0:
+        import IPython
+        IPython.embed()
+
     return DTNode(shapelet, split_point, classes,
                   build_decision_tree(data1, min_len, max_len, max_entropy),
                   build_decision_tree(data2, min_len, max_len, max_entropy))
@@ -55,8 +63,10 @@ def split_by_shapelet(data, shapelet, split_point=None):
         split_point, gain = check_candidate(data, shapelet)
     data1 = []
     data2 = []
+
     for cls, seq in data:
         seq = np.array(seq)
+
         if subsequence_dist(seq, shapelet) < split_point:
             data1.append((cls, seq))
         else:
@@ -69,8 +79,11 @@ def find_shapelet(data, min_len, max_len):
     best_shapelet = None
     best_split_point = None
 
+    i = 0
     for subseq in candidates:
-        split_point, gain = check_candidate(data, subseq)
+        i += 1
+        print '%d/%d' % (i , len(candidates))
+        split_point, gain = check_candidate(data, subseq, best_gain)
         if gain > best_gain:
             best_gain = gain
             best_shapelet = subseq
@@ -91,9 +104,14 @@ def subsequences(seq, length):
         subseqs.add(tuple(seq[t : t + length]))
     return subseqs
 
-def check_candidate(data, subseq):
+def check_candidate(data, subseq, best_gain):
     hist = {}
+
+    classes = [d[0] for d in data]
+    class_hist = np.bincount(classes)
+
     for cls, seq in data:
+
         seq = np.array(seq)
         dist = subsequence_dist(seq, subseq)
         if dist in hist:
@@ -101,20 +119,62 @@ def check_candidate(data, subseq):
         else:
             hist[dist] = [cls]
 
+        class_hist[cls] -= 1
+        if entropy_early_prune(best_gain, hist, class_hist):
+            return 0, 0
+
     return optimal_split_point(hist)
+
+def entropy_early_prune(best_gain, hist, class_hist):
+    #return False
+    hist = hist.copy()
+    dists = hist.keys()
+    min_dist = min(dists)
+    max_dist = max(dists)
+    use_min = True
+
+    for i in np.nonzero(class_hist)[0]:
+        if use_min:
+            hist[min_dist] += [i] * class_hist[i]
+        else:
+            if max_dist + 1 in hist:
+                hist[max_dist + 1] += [i] * class_hist[i]
+            else:
+                hist[max_dist + 1] = [i] * class_hist[i]
+        use_min = not use_min
+
+    split, gain = optimal_split_point(hist)
+    return gain < best_gain
+
+
+_subsequence_dist_code = None
+def subsequence_dist_new(seq, subseq):
+    global _subsequence_dist_code
+    if _subsequence_dist_code is None:
+        source_filename = os.path.dirname(os.path.realpath(__file__)) + '/subsequence_dist.c'
+        with open(source_filename, 'r') as f:
+            _subsequence_dist_code = f.read()
+
+    seq_len = len(seq);
+    subseq_len = len(subseq)
+
+    seq = np.array(seq)
+    subseq = np.array(subseq)
+
+    return scipy.weave.inline(
+        _subsequence_dist_code,
+        ['seq', 'subseq', 'seq_len', 'subseq_len'],
+        type_converters=scipy.weave.converters.blitz)
 
 def subsequence_dist(seq, subseq):
     best_dist = float('inf')
     best_start = 0
     for start in xrange(0, len(seq) - len(subseq)):
-        dist = sequence_dist(seq[start:start + len(subseq)], subseq)
+        dist = np.linalg.norm(seq[start:start + len(subseq)] - subseq)
         if dist < best_dist:
             best_dist = dist
             best_start = start
     return best_dist
-
-def sequence_dist(seq1, seq2):
-    return np.linalg.norm(seq1 - seq2)
 
 def optimal_split_point(hist):
     dists = sorted(hist.keys())
@@ -148,5 +208,7 @@ def entropy(classes):
     class_hist = np.bincount(classes) / float(len(classes))
     if np.all(classes[0] == classes):
         return 0
-    ent = 0 - np.sum(class_hist * np.log(class_hist))
+    lg = np.log(class_hist)
+    lg[np.isinf(lg)] = 0
+    ent = 0 - np.sum(class_hist * lg)
     return ent
