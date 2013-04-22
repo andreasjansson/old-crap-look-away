@@ -368,3 +368,29 @@ def data_to_sequences(data, octave_steps=53):
     data = zip(makams, sequences)
 
     return makams, data
+
+def data_to_shapelet_files(data, training_ratio=.7):
+    data = data.copy()
+    examples = np.array([np.mod(x['notes'][:,2].astype(int), 53) for x in data.values()])
+    makams = np.unique([class_from_filename(k) for k in data.keys()],
+                       return_inverse=True)[1]
+
+    indices = np.arange(len(makams))
+    np.random.shuffle(indices)
+    examples = examples[indices,:]
+    makams = makams[indices]
+
+    split = int(len(data) * training_ratio)
+    training = zip(makams[:split], examples[:split])
+    test = zip(makams[split:], examples[split:])
+
+    def write_file(filename, data):
+        with open(filename, 'w') as f:
+            for makam, example in data:
+                f.write('%d ' % makam)
+                for note in example:
+                    f.write('%d ' % note)
+                f.write('\n')
+
+    write_file('shapelet_train.txt', training)
+    write_file('shapelet_test.txt', test)
