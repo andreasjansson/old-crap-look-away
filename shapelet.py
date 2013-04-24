@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.weave
 import os
+import math
 
 class DTNode(object):
     def __init__(self, shapelet, split_point, classes, left, right):
@@ -92,17 +93,56 @@ def find_shapelet(data, min_len, max_len):
     return best_shapelet, best_split_point
 
 def generate_candidates(data, min_len, max_len):
-    pool = set()
+    filtered_candidates = []
+    nclasses = max([d[0] for d in data]) + 1
     for length in xrange(min_len, max_len):
+        candidates = {}
+        seq = downsample(seq)
         for cls, seq in data:
-            pool |= subsequences(seq, length)
-    return pool
+            find_subsequences(candidates, seq, length, cls)
+        filtered_candidates += filter_candidates(candidates, length, nclasses)
+    return filtered_candidates
 
-def subsequences(seq, length):
-    subseqs = set()
+def filter_candidates(candidates, candidate_len, nclasses):
+    class_matrix = np.zeros((len(candidates), nclasses))
+    candidate_matrix = np.array(candidates.keys())
+
+    print len(candidates)
+
+    masking_iterations = 10
+    nmask = int(math.ceil(candidate_len / 2.5))
+    for iteration in xrange(masking_iterations):
+        print iteration
+        m = candidate_matrix.copy()
+        mask_indices = np.random.choice(candidate_len, nmask, replace=False)
+        m[:, mask_indices] = -1
+
+        for c in xrange(len(candidates)):
+            for seq, classes in candidates.iteritems():
+                # tiny optimisation:
+                if seq[0] != candidate_matrix[c, 0]:
+                    continue
+
+                if np.all(candidate_matrix[c, :] == seq):
+                    for cls in classes:
+                        class_matrix[c, cls] += 1
+
+    row_sums = class_matrix.sum(axis=1).astype(float)
+    class_matrix /= row_sums[:, np.newaxis]
+    lg = np.log(class_matrix)
+    class_entropy = 0 - np.sum(class_matrix * lg, axis=1)
+    ordered_classes = np.argsort(class_entropy)
+
+    nret = max(len(candidates) * .01, 3)
+    return ordered_classes[:nret]
+
+def find_subsequences(candidates, seq, length, cls):
     for t in xrange(len(seq) - length):
-        subseqs.add(tuple(seq[t : t + length]))
-    return subseqs
+        subseq = tuple(seq[t : t + length])
+        if subseq in candidates:
+            candidates[subseq].append(cls)
+        else:
+            candidates[subseq] = [cls]
 
 def check_candidate(data, subseq, best_gain):
     hist = {}
