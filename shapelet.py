@@ -92,6 +92,12 @@ def find_shapelet(data, min_len, max_len):
 
     return best_shapelet, best_split_point
 
+# TODO: UPNEXT:
+#   parallellise filter candidates inner loop
+#   "downsample" or reduce dimensionality, e.g. by using 24 bins instead of 53
+#   keep reference from downsampled sequence back to original
+#   euclidean distance doesn't work for music, use other distance (e.g. number of different notes)
+#   use symbolic representation to determine how much more work needs to be done on pitch detector
 def generate_candidates(data, min_len, max_len):
     filtered_candidates = []
     nclasses = max([d[0] for d in data]) + 1
