@@ -3,6 +3,11 @@ import scipy.weave
 import os
 import math
 
+class Candidate(object):
+    def __init__(self, seq, cls):
+        self.seq = seq
+        self.cls = cls
+
 class DTNode(object):
     def __init__(self, shapelet, split_point, classes, left, right):
         self.shapelet = list(shapelet)
@@ -93,62 +98,89 @@ def find_shapelet(data, min_len, max_len):
     return best_shapelet, best_split_point
 
 # TODO: UPNEXT:
-#   parallellise filter candidates inner loop
-#   "downsample" or reduce dimensionality, e.g. by using 24 bins instead of 53
-#   keep reference from downsampled sequence back to original
-#   euclidean distance doesn't work for music, use other distance (e.g. number of different notes)
 #   use symbolic representation to determine how much more work needs to be done on pitch detector
+#   euclidean distance doesn't work for music, use other distance (e.g. number of different notes)
+#   parallellise filter candidates inner loop
 def generate_candidates(data, min_len, max_len):
     filtered_candidates = []
     nclasses = max([d[0] for d in data]) + 1
     for length in xrange(min_len, max_len):
         candidates = {}
-        seq = downsample(seq)
         for cls, seq in data:
             find_subsequences(candidates, seq, length, cls)
         filtered_candidates += filter_candidates(candidates, length, nclasses)
     return filtered_candidates
 
-def filter_candidates(candidates, candidate_len, nclasses):
-    class_matrix = np.zeros((len(candidates), nclasses))
-    candidate_matrix = np.array(candidates.keys())
-
-    print len(candidates)
+_filter_candidates_code = None
+def filter_candidates(seq_candidates, seq_len, nclasses):
+    class_matrix = np.zeros((len(seq_candidates), nclasses))
+    candidate_matrix = np.array(seq_candidates.keys())
+    candidate_classes = []
+    for seq in candidate_matrix:
+        candidate_classes.append(np.array([c.cls for c in seq_candidates[tuple(seq)]]))
+    #candidate_classes = np.array(candidate_classes)
 
     masking_iterations = 10
-    nmask = int(math.ceil(candidate_len / 2.5))
+    nmask = int(math.ceil(seq_len / 2.5))
+
+    global _filter_candidates_code
+    if _filter_candidates_code is None:
+        source_filename = os.path.dirname(os.path.realpath(__file__)) + '/shapelet_filter_candidates.c'
+        with open(source_filename, 'r') as f:
+            _subsequence_dist_code = f.read()
+
+    len_seq_candidates = len(seq_candidates)
+
     for iteration in xrange(masking_iterations):
         print iteration
-        m = candidate_matrix.copy()
-        mask_indices = np.random.choice(candidate_len, nmask, replace=False)
-        m[:, mask_indices] = -1
+        masked_candidate_matrix = candidate_matrix.copy()
+        mask_indices = np.random.choice(seq_len, nmask, replace=False)
+        masked_candidate_matrix[:, mask_indices] = -1
 
-        for c in xrange(len(candidates)):
-            for seq, classes in candidates.iteritems():
-                # tiny optimisation:
-                if seq[0] != candidate_matrix[c, 0]:
-                    continue
+        scipy.weave.inline(
+            _subsequence_dist_code,
+            ['len_seq_candidates', 'masked_candidate_matrix',
+             'candidate_classes', 'class_matrix', 'seq_len'],
+            type_converters=scipy.weave.converters.blitz)
 
-                if np.all(candidate_matrix[c, :] == seq):
-                    for cls in classes:
-                        class_matrix[c, cls] += 1
+        # for c in xrange(len(seq_candidates)):
+        #     for seq, candidates in seq_candidates.iteritems():
+        #         # tiny optimisation:
+        #         if seq[0] != candidate_matrix[c, 0]:
+        #             continue
+
+        #         if np.all(candidate_matrix[c, :] == seq):
+        #             for candidate in candidates:
+        #                 class_matrix[c, candidate.cls] += 1
 
     row_sums = class_matrix.sum(axis=1).astype(float)
     class_matrix /= row_sums[:, np.newaxis]
     lg = np.log(class_matrix)
     class_entropy = 0 - np.sum(class_matrix * lg, axis=1)
-    ordered_classes = np.argsort(class_entropy)
 
     nret = max(len(candidates) * .01, 3)
-    return ordered_classes[:nret]
+    seq_indices = np.argsort(class_entropy)[:nret]
+    downsampled_seqs = candidate_matrix[seq_indices, :]
+
+    seqs = []
+    for seq in downsampled_seqs:
+        seqs += [c.seq for c in seq_candidates[tuple(seq)]]
+
+    return seqs
+
+def downsample(seq):
+    seq = np.round(np.array(seq) * 24 / 53.).astype(int)
+    return tuple(seq)
 
 def find_subsequences(candidates, seq, length, cls):
     for t in xrange(len(seq) - length):
-        subseq = tuple(seq[t : t + length])
+        subseq = seq[t : t + length]
+        candidate = Candidate(subseq, cls)
+        subseq = downsample(subseq)
         if subseq in candidates:
-            candidates[subseq].append(cls)
+            candidates[subseq].append(candidate)
         else:
-            candidates[subseq] = [cls]
+            candidates[subseq] = [candidate]
 
 def check_candidate(data, subseq, best_gain):
     hist = {}
