@@ -3,6 +3,14 @@ import scipy.weave
 import os
 import math
 
+def test_weave():
+    a = [Candidate(np.array([0,10,20,30]), 0), Candidate(np.array([0,40,50,60]), 1), Candidate(np.array([0,70,80,90]), 2)]
+    b = np.arange(12).reshape(4,3)
+    c = np.zeros((4, 3))
+    scipy.weave.inline(open('test.c', 'r').read(), ['a', 'b', 'c'])
+
+    return c
+
 class Candidate(object):
     def __init__(self, seq, cls):
         self.seq = seq
@@ -117,7 +125,7 @@ def filter_candidates(seq_candidates, seq_len, nclasses):
     candidate_matrix = np.array(seq_candidates.keys())
     candidate_classes = []
     for seq in candidate_matrix:
-        candidate_classes.append(np.array([c.cls for c in seq_candidates[tuple(seq)]]))
+        candidate_classes.append([c.cls for c in seq_candidates[tuple(seq)]])
     #candidate_classes = np.array(candidate_classes)
 
     masking_iterations = 10
@@ -137,11 +145,12 @@ def filter_candidates(seq_candidates, seq_len, nclasses):
         mask_indices = np.random.choice(seq_len, nmask, replace=False)
         masked_candidate_matrix[:, mask_indices] = -1
 
+        total_classes = class_matrix.shape[1]
+
         scipy.weave.inline(
             _subsequence_dist_code,
             ['len_seq_candidates', 'masked_candidate_matrix',
-             'candidate_classes', 'class_matrix', 'seq_len'],
-            type_converters=scipy.weave.converters.blitz)
+             'candidate_classes', 'class_matrix', 'seq_len', 'total_classes'])
 
         # for c in xrange(len(seq_candidates)):
         #     for seq, candidates in seq_candidates.iteritems():
@@ -158,7 +167,7 @@ def filter_candidates(seq_candidates, seq_len, nclasses):
     lg = np.log(class_matrix)
     class_entropy = 0 - np.sum(class_matrix * lg, axis=1)
 
-    nret = max(len(candidates) * .01, 3)
+    nret = max(len(seq_candidates) * .01, 3)
     seq_indices = np.argsort(class_entropy)[:nret]
     downsampled_seqs = candidate_matrix[seq_indices, :]
 
@@ -233,7 +242,7 @@ def subsequence_dist_new(seq, subseq):
         with open(source_filename, 'r') as f:
             _subsequence_dist_code = f.read()
 
-    seq_len = len(seq);
+    seq_len = len(seq)
     subseq_len = len(subseq)
 
     seq = np.array(seq)
