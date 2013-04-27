@@ -2,6 +2,7 @@ import numpy as np
 import scipy.weave
 import os
 import math
+import random
 
 def test_weave():
     a = [Candidate(np.array([0,10,20,30]), 0), Candidate(np.array([0,40,50,60]), 1), Candidate(np.array([0,70,80,90]), 2)]
@@ -55,8 +56,26 @@ class DTLeaf(object):
     def __repr__(self):
         return self.__str__()
 
+def shapelet_accuracy(data, training_ratio = .7):
+    random.shuffle(data)
+    split = int(len(data) * training_ratio)
+    training = data[:split]
+    test = data[split:]
+    dt = build_decision_tree(training)
+    
+def classify(dt, example):
+    node = dt
+    while not hasattr(node, 'cls'): # isinstance DTLeaf doesn't seem to work???
+        dist = subsequence_dist(example, node.shapelet)
+        if dist < node.split_point:
+            node = node.left
+        else:
+            node = node.right
+
+    return node.cls
+
 # data = zip(classes, examples)
-def build_decision_tree(data, min_len, max_len, max_entropy=0):
+def build_decision_tree(data, min_len, max_len, max_entropy=0.2):
     classes = [d[0] for d in data]
     if entropy(classes) <= max_entropy:
         class_hist = np.bincount(classes)
@@ -140,7 +159,6 @@ def filter_candidates(seq_candidates, seq_len, nclasses):
     len_seq_candidates = len(seq_candidates)
 
     for iteration in xrange(masking_iterations):
-        print iteration
         masked_candidate_matrix = candidate_matrix.copy()
         mask_indices = np.random.choice(seq_len, nmask, replace=False)
         masked_candidate_matrix[:, mask_indices] = -1
@@ -152,28 +170,29 @@ def filter_candidates(seq_candidates, seq_len, nclasses):
             ['len_seq_candidates', 'masked_candidate_matrix',
              'candidate_classes', 'class_matrix', 'seq_len', 'total_classes'])
 
-        # for c in xrange(len(seq_candidates)):
-        #     for seq, candidates in seq_candidates.iteritems():
-        #         # tiny optimisation:
-        #         if seq[0] != candidate_matrix[c, 0]:
-        #             continue
-
-        #         if np.all(candidate_matrix[c, :] == seq):
-        #             for candidate in candidates:
-        #                 class_matrix[c, candidate.cls] += 1
-
     row_sums = class_matrix.sum(axis=1).astype(float)
-    class_matrix /= row_sums[:, np.newaxis]
-    lg = np.log(class_matrix)
-    class_entropy = 0 - np.sum(class_matrix * lg, axis=1)
+    norm_class_matrix = class_matrix / row_sums[:, np.newaxis]
+    lg = np.log(norm_class_matrix)
+    class_entropy = 0 - np.sum(norm_class_matrix * lg, axis=1)
+    class_entropy[np.isnan(class_entropy)] = 0
 
-    nret = max(len(seq_candidates) * .01, 3)
-    seq_indices = np.argsort(class_entropy)[:nret]
+    entropy_threshold = .1
+    count_threshold = 10
+    all_seq_indices = np.where(class_entropy < entropy_threshold)[0]
+
+    seq_indices = []
+    for i in reversed(np.argsort(row_sums)):
+        if i in all_seq_indices:
+            seq_indices.append(i)
+        if len(seq_indices) > count_threshold:
+            break
+
     downsampled_seqs = candidate_matrix[seq_indices, :]
 
-    seqs = []
+    seqs = set()
     for seq in downsampled_seqs:
-        seqs += [c.seq for c in seq_candidates[tuple(seq)]]
+        seq_seqs = [tuple(c.seq) for c in seq_candidates[tuple(seq)]]
+        seqs |= set(seq_seqs)
 
     return seqs
 
@@ -235,7 +254,7 @@ def entropy_early_prune(best_gain, hist, class_hist):
 
 
 _subsequence_dist_code = None
-def subsequence_dist_new(seq, subseq):
+def subsequence_dist(seq, subseq):
     global _subsequence_dist_code
     if _subsequence_dist_code is None:
         source_filename = os.path.dirname(os.path.realpath(__file__)) + '/subsequence_dist.c'
@@ -245,15 +264,13 @@ def subsequence_dist_new(seq, subseq):
     seq_len = len(seq)
     subseq_len = len(subseq)
 
-    seq = np.array(seq)
     subseq = np.array(subseq)
 
     return scipy.weave.inline(
         _subsequence_dist_code,
-        ['seq', 'subseq', 'seq_len', 'subseq_len'],
-        type_converters=scipy.weave.converters.blitz)
+        ['seq', 'subseq', 'seq_len', 'subseq_len'])
 
-def subsequence_dist(seq, subseq):
+def subsequence_dist_new(seq, subseq):
     best_dist = float('inf')
     best_start = 0
     for start in xrange(0, len(seq) - len(subseq)):
@@ -299,3 +316,16 @@ def entropy(classes):
     lg[np.isinf(lg)] = 0
     ent = 0 - np.sum(class_hist * lg)
     return ent
+
+def test_data(by_makam):
+    makams = by_makam.keys()
+    makams = random.sample(makams, 6)
+    data = [d for m in makams for d in by_makam[m][0:100]]
+
+    sequences = []
+    for d in data:
+        makam = makams.index(d['makam'])
+        seq = np.mod(d['notes'][:,2].astype(int), 53)
+        sequences.append((makam, seq))
+
+    return sequences
