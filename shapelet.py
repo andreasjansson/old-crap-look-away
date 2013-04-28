@@ -176,10 +176,10 @@ def filter_candidates(seq_candidates, seq_len, nclasses, data):
 
     example_classes = np.array([d[0] for d in data])
     for row in xrange(len_seq_candidates):
-        class_medians = np.zeros((nclasses))
+        class_means = np.zeros((nclasses))
         for i in range(nclasses):
-            class_medians[i] = np.mean(example_matrix[row, example_classes == i])
-        class_matrix[row, :] = class_medians
+            class_means[i] = power_mean(example_matrix[row, example_classes == i])
+        class_matrix[row, :] = class_means
 
     support_threshold = 1
     seqs = []
@@ -226,11 +226,7 @@ def test_classify_old(cands, seq, nclasses):
     for cand in cands:
         for i in xrange(0, len(seq) - len(cand[0])):
             if np.all(seq[i:i + len(cand[0])] == cand[0]):
-                class_prob += cand[1]
-                if cand[1][2] > cand[1][11]:
-                    print '++++++ %s: %.2f, %.2f, %.2f, %.2f' % (str(cand[0]), cand[1][2], cand[1][11], sum(cand[1]), entropy2(cand[1]))
-                else:
-                    print '------ %s: %.2f, %.2f, %.2f, %.2f' % (str(cand[0]), cand[1][2], cand[1][11], sum(cand[1]), entropy2(cand[1]))
+                class_prob += cand[1] * len(cand[0])
 
     print np.argmax(class_prob)
     return class_prob
@@ -394,7 +390,7 @@ def entropy2(values):
 def test_data(by_makam):
     makams = by_makam.keys()
     #makams = random.sample(makams, 14)
-    data = [d for m in makams for d in by_makam[m][0:80]]
+    data = [d for m in makams for d in by_makam[m][:]]
 
     sequences = []
     for d in data:
@@ -410,3 +406,7 @@ def normalise_candidates(candidates):
     for i, c in enumerate(candidates):
         candidates[i] = (c[0], c[1] / colsums)
     return candidates
+
+def power_mean(x, p=1./2):
+    x = np.power(x, p)
+    return np.power(sum(x) / float(len(x)), 1./p)
