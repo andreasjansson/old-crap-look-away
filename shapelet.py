@@ -176,8 +176,10 @@ def filter_candidates(seq_candidates, seq_len, nclasses):
     class_entropy = 0 - np.sum(norm_class_matrix * lg, axis=1)
     class_entropy[np.isnan(class_entropy)] = 0
 
+    # TODO: set entropy threshold to min threshold, up to second to min
+    # if count_threshold is not met yet, etc.
     entropy_threshold = .1
-    count_threshold = 10
+    count_threshold = 5
     all_seq_indices = np.where(class_entropy < entropy_threshold)[0]
 
     seq_indices = []
