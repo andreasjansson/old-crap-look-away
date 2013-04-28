@@ -1,6 +1,8 @@
-PyObject *classes;
-int nclasses;
+PyObject *cands;
+int ncands;
+PyObject *candidate;
 PyObject *cls;
+PyObject *example;
 
 for(int outer = 0; outer < len_seq_candidates; outer ++) {
   for(int inner = 0; inner < len_seq_candidates; inner ++) {
@@ -10,14 +12,18 @@ for(int outer = 0; outer < len_seq_candidates; outer ++) {
         goto next_iteration;
     }
 
-    classes = PySequence_GetItem(candidate_classes, inner);
-    nclasses = PySequence_Size(classes);
-    for(int i = 0; i < nclasses; i ++) {
-      cls = PySequence_GetItem(classes, i);
-      class_matrix[outer * total_classes + PyInt_AsLong(cls)] += 1;
+    cands = PySequence_GetItem(candidates, inner);
+    ncands = PySequence_Size(cands);
+    for(int i = 0; i < ncands; i ++) {
+      candidate = PySequence_GetItem(cands, i);
+      cls = PyObject_GetAttrString(candidate, "cls");
+      example = PyObject_GetAttrString(candidate, "example");
+      //class_matrix[outer * total_classes + PyInt_AsLong(cls)] += 1;
+      example_matrix[outer * total_examples + PyInt_AsLong(example)] += 1;
       Py_DECREF(cls);
+      Py_DECREF(example);
     }
-    Py_DECREF(classes);
+    Py_DECREF(cands);
 
 next_iteration:
     ;

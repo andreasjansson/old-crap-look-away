@@ -13,9 +13,10 @@ def test_weave():
     return c
 
 class Candidate(object):
-    def __init__(self, seq, cls):
+    def __init__(self, seq, cls, example):
         self.seq = seq
         self.cls = cls
+        self.example = example
 
 class DTNode(object):
     def __init__(self, shapelet, split_point, classes, left, right):
@@ -133,22 +134,23 @@ def generate_candidates(data, min_len, max_len):
     nclasses = max([d[0] for d in data]) + 1
     for length in xrange(min_len, max_len):
         candidates = {}
-        for cls, seq in data:
-            find_subsequences(candidates, seq, length, cls)
-        filtered_candidates += filter_candidates(candidates, length, nclasses)
+        for i, (cls, seq) in enumerate(data):
+            find_subsequences(candidates, seq, length, cls, i)
+        filtered_candidates += filter_candidates(candidates, length, nclasses, data)
     return filtered_candidates
 
 _filter_candidates_code = None
-def filter_candidates(seq_candidates, seq_len, nclasses):
+def filter_candidates(seq_candidates, seq_len, nclasses, data):
     class_matrix = np.zeros((len(seq_candidates), nclasses))
+    example_matrix = np.zeros((len(seq_candidates), len(data)))
     candidate_matrix = np.array(seq_candidates.keys())
-    candidate_classes = []
+    candidates = []
     for seq in candidate_matrix:
-        candidate_classes.append([c.cls for c in seq_candidates[tuple(seq)]])
+        candidates.append(seq_candidates[tuple(seq)])
     #candidate_classes = np.array(candidate_classes)
 
-    masking_iterations = 10
-    nmask = int(math.ceil(seq_len / 2.5))
+    masking_iterations = 1
+    nmask = 0 * int(math.ceil(seq_len / 2.5))
 
     global _filter_candidates_code
     if _filter_candidates_code is None:
@@ -164,30 +166,49 @@ def filter_candidates(seq_candidates, seq_len, nclasses):
         masked_candidate_matrix[:, mask_indices] = -1
 
         total_classes = class_matrix.shape[1]
+        total_examples = len(data)
 
         scipy.weave.inline(
             _subsequence_dist_code,
             ['len_seq_candidates', 'masked_candidate_matrix',
-             'candidate_classes', 'class_matrix', 'seq_len', 'total_classes'])
+             'candidates', 'class_matrix', 'seq_len', 'total_classes',
+             'example_matrix', 'total_examples'])
+
+    example_classes = np.array([d[0] for d in data])
+    for row in xrange(len_seq_candidates):
+        class_medians = np.zeros((nclasses))
+        for i in range(nclasses):
+            class_medians[i] = np.mean(example_matrix[row, example_classes == i])
+        class_matrix[row, :] = class_medians
+
+    support_threshold = 1
+    seqs = []
+
+    for i, row in enumerate(class_matrix):
+        if max(row) > support_threshold:
+            seqs.append((candidate_matrix[i], row))
+
+    print len(seqs)
+
+    return seqs
 
     row_sums = class_matrix.sum(axis=1).astype(float)
     norm_class_matrix = class_matrix / row_sums[:, np.newaxis]
     lg = np.log(norm_class_matrix)
+    lg[np.isinf(lg)] = 0
     class_entropy = 0 - np.sum(norm_class_matrix * lg, axis=1)
     class_entropy[np.isnan(class_entropy)] = 0
 
-    # TODO: set entropy threshold to min threshold, up to second to min
-    # if count_threshold is not met yet, etc.
-    entropy_threshold = .1
-    count_threshold = 5
-    all_seq_indices = np.where(class_entropy < entropy_threshold)[0]
-
+    entropies = np.sort(np.unique(class_entropy))
+    current_entropy_i = 0
     seq_indices = []
-    for i in reversed(np.argsort(row_sums)):
-        if i in all_seq_indices:
-            seq_indices.append(i)
-        if len(seq_indices) > count_threshold:
-            break
+    count_threshold = 5
+    while 1:
+        indices = np.where(class_entropy == entropies[current_entropy_i])[0]
+        import pdb
+        pdb.set_trace()
+        seq_indices = indices
+        break
 
     downsampled_seqs = candidate_matrix[seq_indices, :]
 
@@ -198,14 +219,57 @@ def filter_candidates(seq_candidates, seq_len, nclasses):
 
     return seqs
 
+def test_classify_old(cands, seq, nclasses):
+    seq = downsample(seq)
+    class_prob = np.zeros((nclasses))
+    
+    for cand in cands:
+        for i in xrange(0, len(seq) - len(cand[0])):
+            if np.all(seq[i:i + len(cand[0])] == cand[0]):
+                class_prob += cand[1]
+                if cand[1][2] > cand[1][11]:
+                    print '++++++ %s: %.2f, %.2f, %.2f, %.2f' % (str(cand[0]), cand[1][2], cand[1][11], sum(cand[1]), entropy2(cand[1]))
+                else:
+                    print '------ %s: %.2f, %.2f, %.2f, %.2f' % (str(cand[0]), cand[1][2], cand[1][11], sum(cand[1]), entropy2(cand[1]))
+
+    print np.argmax(class_prob)
+    return class_prob
+
+
+def test_classify(cands, seq, nclasses):
+    seq = downsample(seq)
+    seq_len = len(seq)
+    cands_len = len(cands)
+    class_prob = np.zeros((nclasses))
+    cand_seqs = [c[0] for c in cands]
+    cand_seq_lens = np.array([len(c[0]) for c in cands])
+    cand_probs = [c[1] for c in cands]
+
+    scipy.weave.inline(
+        open('test_classify.c').read(),
+        ['cands', 'cands_len', 'cand_seqs', 'cand_seq_lens',
+         'seq', 'seq_len', 'cand_probs', 'nclasses', 'class_prob'])
+
+    print class_prob
+
+    return class_prob
+    
+    for cand in cands:
+        for i in xrange(0, len(seq) - len(cand[0])):
+            if np.all(seq[i:i + len(cand[0])] == cand[0]):
+                class_prob += cand[1]
+                print cand
+    print np.argmax(class_prob)
+    return class_prob
+
 def downsample(seq):
     seq = np.round(np.array(seq) * 24 / 53.).astype(int)
     return tuple(seq)
 
-def find_subsequences(candidates, seq, length, cls):
+def find_subsequences(candidates, seq, length, cls, i):
     for t in xrange(len(seq) - length):
         subseq = seq[t : t + length]
-        candidate = Candidate(subseq, cls)
+        candidate = Candidate(subseq, cls, i)
         subseq = downsample(subseq)
         if subseq in candidates:
             candidates[subseq].append(candidate)
@@ -319,10 +383,18 @@ def entropy(classes):
     ent = 0 - np.sum(class_hist * lg)
     return ent
 
+def entropy2(values):
+    values = values / float(sum(values))
+    lg = np.log(values)
+    lg[np.isinf(lg)] = 0
+    ent = 0 - np.sum(values * lg)
+    return ent
+    
+
 def test_data(by_makam):
     makams = by_makam.keys()
-    makams = random.sample(makams, 6)
-    data = [d for m in makams for d in by_makam[m][0:100]]
+    #makams = random.sample(makams, 14)
+    data = [d for m in makams for d in by_makam[m][0:80]]
 
     sequences = []
     for d in data:
@@ -331,3 +403,10 @@ def test_data(by_makam):
         sequences.append((makam, seq))
 
     return sequences
+
+def normalise_candidates(candidates):
+    cand_matrix = np.array([c[1] for c in candidates])
+    colsums = cand_matrix.sum(0)
+    for i, c in enumerate(candidates):
+        candidates[i] = (c[0], c[1] / colsums)
+    return candidates
