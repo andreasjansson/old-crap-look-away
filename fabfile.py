@@ -72,7 +72,7 @@ def new(instance_type, price, n=1):
     print 'Creating spot requests'
     requests = _ec2().request_spot_instances(
         price=price,
-        image_id=ubuntu1304_hvm if instance_type in ['cc2.8xlarge']
+        image_id=ubuntu1304_hvm if instance_type in ['cc2.8xlarge', 'cr1.8xlarge']
             else ubuntu1304_instance_store,
         count=n,
         security_groups=['default'],
@@ -126,6 +126,9 @@ def new(instance_type, price, n=1):
 def ssh():
     local('ssh -i %s %s@%s' % (env.key_filename, env.user, env.host))
 
+def scp(remote_path, local_path='.'):
+    local('scp -C -i %s %s@%s:"%s" %s' % (env.key_filename, env.user, env.host, remote_path, local_path))
+
 @parallel
 def build(puppet_dir='puppet', init_filename='init.pp'):
     sudo('apt-get update')
@@ -141,11 +144,12 @@ def build(puppet_dir='puppet', init_filename='init.pp'):
     sudo('puppet apply %s/%s' % (remote_puppet_dir, init_filename))
 
 @parallel
-def run(job_name, script, args='', code_dir='.', workers_per_instance=None,
-        exclude=['.git', 'puppet', '*.pyc']):
+def run(job_name, script, args='', code_dir='.', n=None,
+        exclude=['.git', 'puppet']):
     instance = _host_instance()
+    workers_per_instance = n
 
-    if workers_per_instance is None:
+    if n is None:
         workers_per_instance = ec2types[instance.instance_type]['compute_units']
     else:
         workers_per_instance = int(workers_per_instance)
@@ -160,29 +164,34 @@ def run(job_name, script, args='', code_dir='.', workers_per_instance=None,
                           ssh_opts='-o StrictHostKeyChecking=no')
 
     sudo('chmod +x %s/%s' % (remote_code_dir, script))
+    sudo('echo > /var/log/%s.stdout.log' % job_name)
+    sudo('echo > /var/log/%s.stderr.log' % job_name)
 
     sudo('''echo '
 instance $N
 script
-    %s/%s %s %s >> /var/log/%s.stdout.log 2>> /var/log/%s.stderr.log
+    HOST_INDEX=%d HOST_COUNT=%d INSTANCE_INDEX=$N INSTANCE_COUNT=%d %s/%s %s %s >> /var/log/%s.stdout.log 2>> /var/log/%s.stderr.log
 end script' > /etc/init/%s.conf''' %
-         (remote_code_dir, script, job_name, args, job_name, job_name, job_name))
+         (_host_index(), len(env.hosts), workers_per_instance, remote_code_dir,
+          script, job_name, args, job_name, job_name, job_name))
 
     for i in xrange(workers_per_instance):
         sudo('start %s N=%d' % (job_name, i))
 
     _set_instance_name(instance, job_name)
 
-    log()
+    log(True)
 
 @parallel
-def log():
+def log(from_beginning=False):
     job_name = _host_role()
-    sudo('tail -n0 -f /var/log/%s.stdout.log /var/log/%s.stderr.log' %
-         (job_name, job_name))
+    sudo('tail %s -n0 -f /var/log/%s.stdout.log /var/log/%s.stderr.log' %
+         ('-c +1' if from_beginning else '', job_name, job_name))
 
 @parallel
-def stop(workers_per_instance=None):
+def stop(n=None):
+    workers_per_instance = n
+
     job_name = _host_role()
     instance = _host_instance()
     if workers_per_instance is None:
@@ -267,6 +276,9 @@ def _get_roledefs():
 
 def _host_instance():
     return _instance_by_dns(env.host)
+
+def _host_index():
+    return env.hosts.index(env.host)
 
 def _host_role():
     return _host_instance().tags['Name'].split('-', 1)[1]

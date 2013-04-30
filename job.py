@@ -141,3 +141,24 @@ class Job(object):
         if column_family:
             return pycassa.ColumnFamily(self.cassandra_pool, column_family)
         return self.cassandra_pool
+
+
+def INDEX():
+    host_count = int(os.environ['HOST_COUNT'])
+    host_index = int(os.environ['HOST_INDEX'])
+    return int(os.environ['INSTANCE_INDEX']) + host_index * int(os.environ['INSTANCE_COUNT'])
+
+def COUNT():
+    return int(os.environ['HOST_COUNT']) * int(os.environ['INSTANCE_COUNT'])
+
+def cross_partition(data):
+    index = INDEX()
+    count = COUNT()
+    list1 = []
+    list2 = []
+    for i, d in enumerate(data):
+        if (i - index) % count == 0:
+            list2.append(d)
+        else:
+            list1.append(d)
+    return list1, list2

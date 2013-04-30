@@ -1,3 +1,5 @@
+#include <math.h>
+
 PyObject *cand_prob;
 
 for(int t = 0; t < seq_len; t ++) {

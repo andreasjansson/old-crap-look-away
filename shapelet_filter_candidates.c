@@ -7,8 +7,8 @@ PyObject *example;
 for(int outer = 0; outer < len_seq_candidates; outer ++) {
   for(int inner = 0; inner < len_seq_candidates; inner ++) {
     for(int i = 0; i < seq_len; i ++) {
-      if(masked_candidate_matrix[outer * seq_len + i] !=
-         masked_candidate_matrix[inner * seq_len + i])
+      if(candidate_matrix[outer * seq_len + i] !=
+         candidate_matrix[inner * seq_len + i])
         goto next_iteration;
     }
 
