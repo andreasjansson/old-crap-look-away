@@ -104,14 +104,40 @@ def classify(cands, seq, nclasses):
 
     return class_prob
 
-def classify_knn(classes, support, cands, seq):
+def classify_knn(classes, support, cands, seq, k=4):
     seq = downsample(seq)
+    seq_len = len(seq)
+    cands_len = len(cands)
+    cand_seq_lens = np.array([len(c) for c in cands])
     seq_support = np.zeros(len(cands))
-    
-    for c, cand in enumerate(cands):
-        for i in xrange(0, len(seq) - len(cand)):
-            if np.all(seq[i:i + len(cand)] == cand):
-                seq_support[c] += 1
+
+    scipy.weave.inline(
+        '''
+for(int t = 0; t < seq_len; t ++) {
+  for(int i = 0; i < cands_len; i ++) {
+
+    if(t + cand_seq_lens[i] >= seq_len)
+      continue;
+
+    for(int j = 0; j < cand_seq_lens[i]; j ++) {
+      if(seq[t + j] != cands[i][j])
+        goto next;
+    }
+
+    seq_support[i] += 1;
+
+next: 
+    ;
+  }
+}
+
+''',
+        ['cands', 'cands_len', 'cand_seq_lens', 'seq', 'seq_len', 'seq_support'])
+
+#    for c, cand in enumerate(cands):
+#        for i in xrange(0, len(seq) - len(cand)):
+#            if np.all(seq[i:i + len(cand)] == cand):
+#                seq_support[c] += 1
 
     seq_support /= float(len(seq))
 
@@ -119,7 +145,16 @@ def classify_knn(classes, support, cands, seq):
     for i, example_support in enumerate(support.T):
         distances[i] = np.linalg.norm(example_support - seq_support)
 
-    return distances
+    nearest = classes[np.argsort(distances)][:k]
+    print nearest
+    nearest_map = {}
+    near_weight = 1.1
+    for i, cls in enumerate(nearest):
+        if cls not in nearest_map:
+            nearest_map[cls] = 0
+        nearest_map[cls] += 1 + np.power(near_weight, (k - i + 1) / float(k))
+
+    return max(nearest_map, key=nearest_map.get)
 
 def downsample(seq):
     seq = np.round(np.array(seq) * 24 / 53.).astype(int)
@@ -200,3 +235,16 @@ def to_features(data, candidates):
 
     return classes, occurrences
 
+
+def knn_accuracy(training, test, seqlen, k):
+    cands = generate_candidates(training, seqlen, seqlen + 1)
+    classes, support, candidates = get_subsequence_support(cands, seqlen, 14, training)
+    normalise_subsequence_support(support, training)
+    score = 0
+    for actual, seq in test:
+        predicted = classify_knn(classes, support, cands.keys(), seq, k)
+        print actual, predicted
+        if actual == predicted:
+            score +=1
+
+    return score / float(len(test))
