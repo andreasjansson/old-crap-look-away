@@ -24,7 +24,7 @@ def crossvalidate(job_name):
         with open(cache_filename, 'r') as f:
             candidates = cPickle.load(f)
     else:
-        j.log('Staring training %d/%d' % (job.INDEX(), job.COUNT()))
+        j.log('Staring training %d/%d' % (job.INDEX() + 1, job.COUNT()))
         candidates = shapelet.generate_candidates(training, 3, 8)
         with open(cache_filename, 'w') as f:
             cPickle.dump(candidates, f)
