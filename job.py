@@ -69,10 +69,19 @@ class Job(object):
     def store(self, key, value):
         self.cassandra('data').insert(key, {'data': cPickle.dumps(value)})
 
+    def store_instance(self, key, value):
+        self.cassandra('instance_data').insert(
+            key, {'%d-%d' % (INDEX(), COUNT()): cPickle.dumps(value)})
+
     def clear(self):
-        self.rabbitmq().queue_delete(queue=self.name)
-        self.cassandra('data').truncate()
-        self.cassandra('log').truncate()
+        try:
+            self.rabbitmq().queue_delete(queue=self.name)
+        except Exception, e:
+            sys.stderr.write('Failed to clear queue: %s\n' % str(e))
+        try:
+            self.cassandra_sys().drop_keyspace(self.name)
+        except Exception, e:
+            sys.stderr.write('Failed to clear database: %s\n' % str(e))
 
     def get_log(self, max_count=2000):
         return list(self.cassandra('log')
@@ -91,6 +100,14 @@ class Job(object):
             column_count=0, filter_empty=False):
             count +=1
         return count
+
+    def reduce_instances(self, key, count, reducer):
+        columns = ['%d-%d' % (i, count) for i in range(count)]
+        data = []
+        for value in self.cassandra('instance_data').get(
+            key=key, columns=columns).values():
+            data.append(cPickle.loads(value))
+        return reduce(reducer, data)
 
     def get_queue_length(self):
         return self.rabbitmq().queue_declare(
@@ -113,6 +130,15 @@ class Job(object):
 
         return self.rabbitmq_channel
 
+    def cassandra_sys(self, column_family=None):
+        server = '%s:%s' % (config('cassandra')['host'],
+                            int(config('cassandra')['port']))
+
+        credentials = {'username': config('cassandra')['user'],
+                       'password': config('cassandra')['pass']}
+
+        return pycassa.system_manager.SystemManager(server, credentials)
+        
     def cassandra(self, column_family=None):
         if self.cassandra_pool is None:
             server = '%s:%s' % (config('cassandra')['host'],
@@ -126,6 +152,10 @@ class Job(object):
                 sys.create_keyspace(self.name,
                                     strategy_options={'replication_factor': '1'})
                 sys.create_column_family(self.name, 'data',
+                                         key_validation_class=pycassa.ASCII_TYPE,
+                                         comparator_type=pycassa.ASCII_TYPE,
+                                         default_validation_class=pycassa.BYTES_TYPE)
+                sys.create_column_family(self.name, 'instance_data',
                                          key_validation_class=pycassa.ASCII_TYPE,
                                          comparator_type=pycassa.ASCII_TYPE,
                                          default_validation_class=pycassa.BYTES_TYPE)

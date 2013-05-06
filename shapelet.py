@@ -10,18 +10,13 @@ class Candidate(object):
         self.cls = cls
         self.example = example
 
-def generate_candidates(data, min_len, max_len):
+def generate_candidates(data, length):
     filtered_candidates = []
     nclasses = max([d[0] for d in data]) + 1
-    for length in xrange(min_len, max_len):
-        candidates = {}
-        for i, (cls, seq) in enumerate(data):
-            find_subsequences(candidates, seq, length, cls, i)
+    candidates = {}
+    for i, (cls, seq) in enumerate(data):
+        find_subsequences(candidates, seq, length, cls, i)
     return candidates
-
-#        classes, subsequence_support = get_subsequence_support(candidates, length, nclasses, data)
-#        filtered_candidates += get_pruned_candidates(classes, subsequence_support, np.array(candidates.keys()))
-#    return filtered_candidates
 
 _subsequence_support_code = None
 def get_subsequence_support(seq_candidates, seq_len, nclasses, data):
@@ -68,11 +63,19 @@ def get_pruned_candidates(classes, subsequence_support, candidate_matrix):
     support_threshold = 1
     seqs = []
 
+    indices = []
     for i, row in enumerate(class_matrix):
-        if max(row) > support_threshold:
-            seqs.append((candidate_matrix[i], row))
+#        if max(row) > support_threshold:
+        print 'max: %.3f, entropy: %.3f' % (max(row), entropy2(row))
+        if max(row) > .5 and entropy2(row) < .5:
+            indices.append(i)
+            #seqs.append((candidate_matrix[i], row))
 
-    return seqs
+    import pdb
+    pdb.set_trace()
+
+    indices = np.array(indices)
+    return subsequence_support[indices], candidate_matrix[indices]
 
 def classify_old(cands, seq, nclasses):
     seq = downsample(seq)
@@ -104,8 +107,7 @@ def classify(cands, seq, nclasses):
 
     return class_prob
 
-def classify_knn(classes, support, cands, seq, k=4):
-    seq = downsample(seq)
+def get_seq_support(cands, seq):
     seq_len = len(seq)
     cands_len = len(cands)
     cand_seq_lens = np.array([len(c) for c in cands])
@@ -134,25 +136,36 @@ next:
 ''',
         ['cands', 'cands_len', 'cand_seq_lens', 'seq', 'seq_len', 'seq_support'])
 
+    return seq_support
+
+def classify_knn(classes, support, cands, seq, k=4):
+    seq = downsample(seq)
+
 #    for c, cand in enumerate(cands):
 #        for i in xrange(0, len(seq) - len(cand)):
 #            if np.all(seq[i:i + len(cand)] == cand):
 #                seq_support[c] += 1
 
+    seq_support = get_seq_support(cands, seq)
+
     seq_support /= float(len(seq))
 
     distances = np.zeros(support.shape[1])
     for i, example_support in enumerate(support.T):
-        distances[i] = np.linalg.norm(example_support - seq_support)
+        #example_support /= sum(example_support)
+        #distances[i] = np.linalg.norm(example_support - seq_support)
+        distances[i] = np.sum(np.abs(example_support - seq_support))
+        #distances[i] = np.sum(example_support * seq_support)
 
-    nearest = classes[np.argsort(distances)][:k]
-    print nearest
+    nearest = classes[np.argsort(distances)[::1]][:k]
     nearest_map = {}
-    near_weight = 1.1
+    near_weight = 10
     for i, cls in enumerate(nearest):
         if cls not in nearest_map:
             nearest_map[cls] = 0
         nearest_map[cls] += 1 + np.power(near_weight, (k - i + 1) / float(k))
+
+    print nearest
 
     return max(nearest_map, key=nearest_map.get)
 
@@ -213,7 +226,7 @@ def normalise_candidates(candidates):
         candidates[i] = (c[0], c[1] / colsums)
     return candidates
 
-def power_mean(x, p=1.):
+def power_mean(x, p=1./2):
     x = np.power(x, p)
     return np.power(sum(x) / float(len(x)), 1./p)
 
@@ -235,16 +248,52 @@ def to_features(data, candidates):
 
     return classes, occurrences
 
+def sum_support_by_class(data, support):
+    nclasses = max([d[0] for d in data]) + 1
+    cls_support = np.zeros((support.shape[0], nclasses))
+    for i, d in enumerate(data):
+        cls_support[:, d[0]] += support[:, i]
+    cls_support /= cls_support.sum(0)
+    return cls_support
 
-def knn_accuracy(training, test, seqlen, k):
-    cands = generate_candidates(training, seqlen, seqlen + 1)
-    classes, support, candidates = get_subsequence_support(cands, seqlen, 14, training)
-    normalise_subsequence_support(support, training)
+def knn_accuracy(training, test, min_len, max_len, k):
+    all_classes = np.empty((0, 0))
+    all_support = np.empty((0, len(training)))
+    all_candidates = []
+
+    for length in xrange(min_len, max_len):
+
+        cands = generate_candidates(training, length)
+        classes, support, candidates = get_subsequence_support(cands, length, 14, training)
+
+        normalise_subsequence_support(support, training)
+
+        all_classes = classes
+        all_support = np.vstack((all_support, support))
+        all_candidates += map(tuple, candidates)
+
+        #print 'length: %d, candidates: %d, total candidates: %d' % (length, len(candidates), len(cands))
+
+    print len(all_candidates)
+
+    classes = all_classes
+    support = all_support
+    candidates = all_candidates
+
     score = 0
-    for actual, seq in test:
-        predicted = classify_knn(classes, support, cands.keys(), seq, k)
-        print actual, predicted
-        if actual == predicted:
-            score +=1
 
-    return score / float(len(test))
+    all_actual = []
+    all_predicted = []
+
+    #predicted = np.array([classify_knn(classes, support, candidates, d[1], k) for d in test])
+
+    predicted = []
+    for d in test:
+        predicted.append(classify_knn(classes, support, candidates, d[1], k))
+        print d[0]
+
+    actual = np.array([d[0] for d in test])
+
+    score = np.sum(predicted == actual)
+
+    return predicted, actual, score / float(len(test))

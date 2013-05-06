@@ -10,6 +10,26 @@ import numpy as np
 
 CACHE_TRAINING = False
 
+def crossvalidate_new(job_name):
+
+    j = job.Job(job_name)
+
+    data_job = job.Job('sequences')
+    data = data_job.get_data()['data']
+    training, test = job.cross_partition(data)
+
+    predicted, actual, score = shapelet.knn_accuracy(training, test, 1, 4, 5)
+    score *= 100.
+
+    confusion = np.zeros((14, 14))
+    for p, a in zip(predicted, actual):
+        confusion[p, a] += 1
+
+    j.store_instance('score', score)
+    j.store_instance('confusion', confusion)
+    j.log('%d' % score)
+
+
 def crossvalidate(job_name):
 
     j = job.Job(job_name)
@@ -25,7 +45,10 @@ def crossvalidate(job_name):
             candidates = cPickle.load(f)
     else:
         j.log('Staring training %d/%d' % (job.INDEX() + 1, job.COUNT()))
-        candidates = shapelet.generate_candidates(training, 3, 8)
+        candidates = shapelet.generate_candidates(training, 3, 4)
+        classes, subsequence_support, candidates = shapelet.get_subsequence_support(candidates, 3, 14, training)
+        candidates = shapelet.get_pruned_candidates(classes, subsequence_support, np.array(candidates))
+        
         with open(cache_filename, 'w') as f:
             cPickle.dump(candidates, f)
 
@@ -35,10 +58,10 @@ def crossvalidate(job_name):
     actual = np.array([x[0] for x in test])
     score = 100 * sum(predicted == actual) / float(len(test))
 
-    j.store('score_%d_%d' % (job.INDEX(), job.COUNT()), score)
-    j.store('predicted_%d_%d' % (job.INDEX(), job.COUNT()), predicted)
-    j.store('actual_%d_%d' % (job.INDEX(), job.COUNT()), actual)
+    j.store_instance('score', score)
+    j.store_instance('predicted', predicted)
+    j.store_instance('actual', actual)
     j.log('%d' % score)
 
 if __name__ == '__main__':
-    crossvalidate(sys.argv[1])
+    crossvalidate_new(sys.argv[1])
