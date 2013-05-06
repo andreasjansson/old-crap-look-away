@@ -49,6 +49,7 @@ def normalise_subsequence_support(subsequence_support, data):
 
 def get_pruned_candidates(classes, subsequence_support, candidate_matrix):
     ncands, nclasses = subsequence_support.shape
+    nclasses = 14
     class_matrix = np.zeros((ncands, nclasses))
 
     for row in xrange(ncands):
@@ -65,17 +66,12 @@ def get_pruned_candidates(classes, subsequence_support, candidate_matrix):
 
     indices = []
     for i, row in enumerate(class_matrix):
-#        if max(row) > support_threshold:
-        print 'max: %.3f, entropy: %.3f' % (max(row), entropy2(row))
-        if max(row) > .5 and entropy2(row) < .5:
+        if max(row) > support_threshold:
             indices.append(i)
-            #seqs.append((candidate_matrix[i], row))
-
-    import pdb
-    pdb.set_trace()
+            seqs.append((candidate_matrix[i], row))
 
     indices = np.array(indices)
-    return subsequence_support[indices], candidate_matrix[indices]
+    return subsequence_support[indices], candidate_matrix[indices], seqs
 
 def classify_old(cands, seq, nclasses):
     seq = downsample(seq)
@@ -113,38 +109,25 @@ def get_seq_support(cands, seq):
     cand_seq_lens = np.array([len(c) for c in cands])
     seq_support = np.zeros(len(cands))
 
+    source_filename = os.path.dirname(os.path.realpath(__file__)) + '/shapelet_seq_support.c'
     scipy.weave.inline(
-        '''
-for(int t = 0; t < seq_len; t ++) {
-  for(int i = 0; i < cands_len; i ++) {
-
-    if(t + cand_seq_lens[i] >= seq_len)
-      continue;
-
-    for(int j = 0; j < cand_seq_lens[i]; j ++) {
-      if(seq[t + j] != cands[i][j])
-        goto next;
-    }
-
-    seq_support[i] += 1;
-
-next: 
-    ;
-  }
-}
-
-''',
+        open(source_filename, 'r').read(),
         ['cands', 'cands_len', 'cand_seq_lens', 'seq', 'seq_len', 'seq_support'])
 
     return seq_support
 
-def classify_knn(classes, support, cands, seq, k=4):
-    seq = downsample(seq)
+def weigh_near(nearest):
+    k = len(nearest)
+    nearest_map = {}
+    near_weight = 30
+    for i, cls in enumerate(nearest):
+        if cls not in nearest_map:
+            nearest_map[cls] = 0
+        nearest_map[cls] += 1 + np.power(near_weight, (k - i + 1) / float(k))
+    return nearest_map
 
-#    for c, cand in enumerate(cands):
-#        for i in xrange(0, len(seq) - len(cand)):
-#            if np.all(seq[i:i + len(cand)] == cand):
-#                seq_support[c] += 1
+def classify_knn(classes, support, cands, seq, k):
+    seq = downsample(seq)
 
     seq_support = get_seq_support(cands, seq)
 
@@ -153,19 +136,13 @@ def classify_knn(classes, support, cands, seq, k=4):
     distances = np.zeros(support.shape[1])
     for i, example_support in enumerate(support.T):
         #example_support /= sum(example_support)
-        #distances[i] = np.linalg.norm(example_support - seq_support)
         distances[i] = np.sum(np.abs(example_support - seq_support))
         #distances[i] = np.sum(example_support * seq_support)
 
     nearest = classes[np.argsort(distances)[::1]][:k]
-    nearest_map = {}
-    near_weight = 10
-    for i, cls in enumerate(nearest):
-        if cls not in nearest_map:
-            nearest_map[cls] = 0
-        nearest_map[cls] += 1 + np.power(near_weight, (k - i + 1) / float(k))
+    nearest_map = weigh_near(nearest)
 
-    print nearest
+    #print zip(np.argsort(distances), nearest), {k: int(v) for k, v in nearest_map.iteritems()}
 
     return max(nearest_map, key=nearest_map.get)
 
@@ -257,6 +234,8 @@ def sum_support_by_class(data, support):
     return cls_support
 
 def knn_accuracy(training, test, min_len, max_len, k):
+    global all_classes, all_support, all_candidates
+
     all_classes = np.empty((0, 0))
     all_support = np.empty((0, len(training)))
     all_candidates = []
@@ -265,6 +244,8 @@ def knn_accuracy(training, test, min_len, max_len, k):
 
         cands = generate_candidates(training, length)
         classes, support, candidates = get_subsequence_support(cands, length, 14, training)
+
+        support, candidates, seqs = get_pruned_candidates(classes, support, candidates)
 
         normalise_subsequence_support(support, training)
 
