@@ -4,12 +4,23 @@ import numpy as np
 import struct
 import scipy.io.wavfile
 import operator
+import math
 
 from util import *
 
 class Audio(object):
 
-    def __init__(self, path=None, max_time=None):
+    def __init__(self, path=None, max_time=None, sample_rate=None, channels=None):
+
+        self.signal = None
+        self.remote_path = None
+
+        if sample_rate:
+            self.sample_rate = sample_rate
+
+        if channels:
+            self.channels = channels
+
         if not path:
             return
 
@@ -37,9 +48,11 @@ class Audio(object):
 
     def _read_mp3(self):
         mf = mad.MadFile(self.filename)
+
         if mf.mode() == mad.MODE_SINGLE_CHANNEL:
             self.channels = 1
-        elif mf.mode() == mad.MODE_JOINT_STEREO:
+        elif (mf.mode() == mad.MODE_JOINT_STEREO or
+              mf.mode() == mad.MODE_STEREO):
             self.channels = 2
         else:
             raise NotImplementedError('Unsupported stereo mode')
@@ -55,6 +68,7 @@ class Audio(object):
             signal_r = []
 
         length = 0
+
         while True:
             buf = mf.read()
             if buf is None:
@@ -78,7 +92,6 @@ class Audio(object):
             if max_samples is not None and length >= max_samples:
                 break
 
-        self.length = length
         if self.channels == 1:
             self.signal = np.array([signal_l], dtype='float32')
         elif self.channels == 2:
@@ -105,7 +118,11 @@ class Audio(object):
             self.signal.shape = sig_shape
 
         self.channels = self.signal.shape[1]
-        self.length = self.signal.shape[0]
+
+    def length(self):
+        if self.signal is not None:
+            return self.signal.shape[0]
+        return 0
             
     def play(self):
         import alsaaudio
@@ -117,9 +134,9 @@ class Audio(object):
         period_size = 128
         pcm.setperiodsize(period_size)
 
-        for pos in xrange(0, self.length, period_size):
+        for pos in xrange(0, self.length(), period_size):
 
-            period = min(period_size, self.length - pos)
+            period = min(period_size, self.length() - pos)
             end_pos = pos + period
 
             if self.channels == 1:
@@ -147,3 +164,47 @@ class Audio(object):
         def function(ax):
             ax.plot(self.signal[:, channel])
         return function
+
+    def add_note(self, start, duration, frequency, amplitude=1.0, waveform='sine'):
+        if waveform != 'sine':
+            raise Exception('Unknown waveform: %s' % waveform)
+
+        end = start + duration
+
+        if self.signal is None:
+            self.signal = np.zeros((end, self.channels))
+        elif self.signal.shape[0] < end:
+            self.signal = np.vstack((self.signal, np.zeros((
+                            end - self.signal.shape[0], self.channels))))
+
+        sig = np.sin(np.arange(duration) * 2 * math.pi *
+                     frequency / self.sample_rate) * amplitude
+
+        for i in range(self.channels):
+            self.signal[start:end,i] += sig
+
+    def clone(self):
+        new = Audio()
+        new.sample_rate = self.sample_rate
+        new.channels = self.channels
+        new.signal = self.signal.copy()
+        return new
+
+def merge(first, second):
+    first = first.clone()
+    if first.sample_rate != second.sample_rate:
+        raise Exception('Cannot merge Audio objects with different sample rates')
+
+    if first.channels < second.channels:
+        first.channels = second.channels
+        for i in range(second.channels - first.channels):
+            first.signal = np.hstack((first.signal, first.signal[:,0]))
+
+    if first.length() < second.length():
+        padding = np.zeros((second.length() - first.length(),
+                            first.channels))
+        first.signal = np.vstack((first.signal, padding))
+
+    for i in range(first.channels):
+        first.signal[:second.length(), i] += second.signal[:, i % second.channels]
+    return first

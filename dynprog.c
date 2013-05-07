@@ -1,12 +1,12 @@
 int t;
 int x;
 int i;
-int min_cost;
+long min_cost;
 int min_i;
-int cost;
-int a;
-int weighted_cost;
-int zero_weight;
+long cost;
+long a;
+long weighted_cost;
+long zero_weight;
 
 for(t = 1; t < length; t ++) {
 
@@ -15,7 +15,7 @@ for(t = 1; t < length; t ++) {
   zero_weight = a * silence_cost;
 
   for(x = 0; x < height; x ++) {
-    min_cost = 1000000;
+    min_cost = 1000000000;
     for(i = 0; i < height; i ++) {
 
       if(x == 0) {

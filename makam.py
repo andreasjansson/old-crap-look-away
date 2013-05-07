@@ -8,6 +8,8 @@ import os.path
 import glob
 import cPickle
 import spectrogram
+import re
+import pandas
 
 def monophonic_path(spectrogram_data):
     values = np.max(spectrogram_data) - spectrogram_data
@@ -15,7 +17,7 @@ def monophonic_path(spectrogram_data):
     prev = np.zeros(spectrogram_data.shape)
     amp = amplitude(spectrogram_data)
 
-    change_cost = .1
+    change_cost = .05
     silence_cost = 2
 
     costs[:, 0] = values[:, 0]
@@ -177,7 +179,8 @@ def chroma(a, window_size, steps):
 
 def class_from_filename(filename):
     basename = os.path.basename(filename)
-    c = basename.split('--', 1)[0]
+    matches = re.search(r'^[^a-zA-Z]*([a-zA-Z]+)[^a-zA-Z]', basename)
+    c = matches.group(1)
     return c
 
 def get_training_example(filename):
@@ -394,3 +397,42 @@ def data_to_shapelet_files(data, training_ratio=.7):
 
     write_file('shapelet_train.txt', training)
     write_file('shapelet_test.txt', test)
+
+def notes_to_audio(notes, sample_rate, window_size=8192, hop_size=2048):
+    import audio
+    a = audio.Audio(sample_rate=sample_rate, channels=1)
+    for start, end, value in notes:
+        a.add_note(start * hop_size, (end - start) * hop_size,
+                   value * sample_rate / window_size, amplitude=.5)
+    return a
+
+def get_symbolic_data(txt_path):
+    cls = class_from_filename(txt_path)
+    df = pandas.read_table(txt_path)
+    seq = np.array(df['Koma53'].T)
+    return cls, seq
+
+def to_intervals(seq):
+    return seq[1:] - seq[:-1]
+
+def dir_to_data(path, min_examples=40):
+    filenames = glob.glob(path + '/*.txt')
+    data = {}
+    for filename in filenames:
+        cls, seq = get_symbolic_data(filename)
+        seq = to_intervals(seq)
+        if cls in data:
+            data[cls].append(seq)
+        else:
+            data[cls] = [seq]
+
+    data = {k: v for k, v in data.iteritems() if len(v) >= min_examples}
+    class_names = data.keys()
+    classes = {cls: i for i, cls in enumerate(class_names)}
+
+    d = []
+    for cls, seqs in data.iteritems():
+        for seq in seqs:
+            d.append((classes[cls], seq))
+
+    return d, class_names

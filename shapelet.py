@@ -119,7 +119,7 @@ def get_seq_support(cands, seq):
 def weigh_near(nearest):
     k = len(nearest)
     nearest_map = {}
-    near_weight = 30
+    near_weight = 10
     for i, cls in enumerate(nearest):
         if cls not in nearest_map:
             nearest_map[cls] = 0
@@ -134,6 +134,7 @@ def classify_knn(classes, support, cands, seq, k):
     seq_support /= float(len(seq))
 
     distances = np.zeros(support.shape[1])
+
     for i, example_support in enumerate(support.T):
         #example_support /= sum(example_support)
         distances[i] = np.sum(np.abs(example_support - seq_support))
@@ -142,12 +143,13 @@ def classify_knn(classes, support, cands, seq, k):
     nearest = classes[np.argsort(distances)[::1]][:k]
     nearest_map = weigh_near(nearest)
 
-    #print zip(np.argsort(distances), nearest), {k: int(v) for k, v in nearest_map.iteritems()}
+    print zip(np.argsort(distances), nearest), {k: int(v) for k, v in nearest_map.iteritems()}
 
     return max(nearest_map, key=nearest_map.get)
 
 def downsample(seq):
-    seq = np.round(np.array(seq) * 24 / 53.).astype(int)
+    # disabled temporarily while dealing with symbolic data
+    #seq = np.round(np.array(seq) * 24 / 53.).astype(int)
     return tuple(seq)
 
 def find_subsequences(candidates, seq, length, cls, i):
