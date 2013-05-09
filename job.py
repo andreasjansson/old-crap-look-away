@@ -174,12 +174,12 @@ class Job(object):
 
 
 def INDEX():
-    host_count = int(os.environ['HOST_COUNT'])
-    host_index = int(os.environ['HOST_INDEX'])
-    return int(os.environ['INSTANCE_INDEX']) + host_index * int(os.environ['INSTANCE_COUNT'])
+    host_count = int(os.environ.get('HOST_COUNT', 1))
+    host_index = int(os.environ.get('HOST_INDEX', 1))
+    return int(os.environ.get('INSTANCE_INDEX', 1)) + host_index * int(os.environ.get('INSTANCE_COUNT', 1))
 
 def COUNT():
-    return int(os.environ['HOST_COUNT']) * int(os.environ['INSTANCE_COUNT'])
+    return int(os.environ.get('HOST_COUNT', 1)) * int(os.environ.get('INSTANCE_COUNT', 1))
 
 def cross_partition(data):
     index = INDEX()

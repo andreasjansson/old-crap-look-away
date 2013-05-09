@@ -14,5 +14,6 @@ pip::install {'boto': }
 pip::install {'pika': }
 pip::install {'pycassa': }
 pip::install {'scikit-learn': require => Package['python-numpy'], }
+pip::install {'pandas': require => Package['python-numpy'], }
 
 include job

@@ -48,20 +48,22 @@ def normalise_subsequence_support(subsequence_support, data):
     subsequence_support /= example_lengths
 
 def get_pruned_candidates(classes, subsequence_support, candidate_matrix):
-    ncands, nclasses = subsequence_support.shape
-    nclasses = 14
+    ncands = subsequence_support.shape[0]
+    nclasses = max(classes) + 1
     class_matrix = np.zeros((ncands, nclasses))
 
     for row in xrange(ncands):
         class_means = np.zeros((nclasses))
         for i in range(nclasses):
             class_examples = subsequence_support[row, classes == i]
+            if not isinstance(class_examples, np.ndarray):
+                class_examples = np.array([class_examples])
             if not len(class_examples):
                 continue
             class_means[i] = power_mean(class_examples)
         class_matrix[row, :] = class_means
 
-    support_threshold = 1
+    support_threshold = .001
     seqs = []
 
     indices = []
@@ -126,10 +128,13 @@ def weigh_near(nearest):
         nearest_map[cls] += 1 + np.power(near_weight, (k - i + 1) / float(k))
     return nearest_map
 
-def classify_knn(classes, support, cands, seq, k):
+def classify_knn(classes, support, cands, seq, k, w):
     seq = downsample(seq)
 
     seq_support = get_seq_support(cands, seq)
+
+    seq_support *= w
+    support = (support.T * w).T
 
     seq_support /= float(len(seq))
 
@@ -143,7 +148,7 @@ def classify_knn(classes, support, cands, seq, k):
     nearest = classes[np.argsort(distances)[::1]][:k]
     nearest_map = weigh_near(nearest)
 
-    print zip(np.argsort(distances), nearest), {k: int(v) for k, v in nearest_map.iteritems()}
+    #print zip(np.argsort(distances), nearest), {k: int(v) for k, v in nearest_map.iteritems()}
 
     return max(nearest_map, key=nearest_map.get)
 
@@ -242,14 +247,16 @@ def knn_accuracy(training, test, min_len, max_len, k):
     all_support = np.empty((0, len(training)))
     all_candidates = []
 
+    nclasses = max([t[0] for t in training]) + 1
+
     for length in xrange(min_len, max_len):
 
         cands = generate_candidates(training, length)
-        classes, support, candidates = get_subsequence_support(cands, length, 14, training)
-
-        support, candidates, seqs = get_pruned_candidates(classes, support, candidates)
+        classes, support, candidates = get_subsequence_support(cands, length, nclasses, training)
 
         normalise_subsequence_support(support, training)
+
+        support, candidates, seqs = get_pruned_candidates(classes, support, candidates)
 
         all_classes = classes
         all_support = np.vstack((all_support, support))
@@ -257,7 +264,7 @@ def knn_accuracy(training, test, min_len, max_len, k):
 
         #print 'length: %d, candidates: %d, total candidates: %d' % (length, len(candidates), len(cands))
 
-    print len(all_candidates)
+    #print len(all_candidates)
 
     classes = all_classes
     support = all_support
@@ -280,3 +287,36 @@ def knn_accuracy(training, test, min_len, max_len, k):
     score = np.sum(predicted == actual)
 
     return predicted, actual, score / float(len(test))
+
+def test_random_weights(support, classes, weights):
+
+    global g_weights
+    g_weights = weights
+
+    support = (support.T * weights).T
+
+    def dist(m1, m2):
+        return np.sum([np.abs(m1.T - m2.T[i]).sum() for i in np.arange(m2.shape[1])]) / float(m2.shape[1])
+
+    cs = np.unique(classes)
+    dists = np.zeros((len(cs), len(cs)))
+
+    scores = np.zeros((len(cs)))
+
+    for i in np.unique(classes):
+        this = support[:, classes == i]
+        for j in np.unique(classes):
+            other = support[:, classes == j]
+
+            d = dist(this, other)
+            dists[i, j] = d / this.shape[1]
+
+    score = dists.sum()
+
+    import matplotlib.pyplot as plt
+    plt.imshow(scipy.spatial.distance.squareform(scipy.spatial.distance.pdist(support.T[np.argsort(classes)], 'cityblock')), interpolation='nearest')
+
+    print dists.sum() / dists.diagonal().sum()
+
+    return dists
+

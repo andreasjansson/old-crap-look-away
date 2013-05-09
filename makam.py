@@ -420,7 +420,7 @@ def dir_to_data(path, min_examples=40):
     data = {}
     for filename in filenames:
         cls, seq = get_symbolic_data(filename)
-        seq = to_intervals(seq)
+        #seq = to_intervals(seq)
         if cls in data:
             data[cls].append(seq)
         else:
