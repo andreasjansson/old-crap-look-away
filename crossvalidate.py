@@ -18,10 +18,9 @@ def crossvalidate_new(job_name):
     data = data_job.get_data()['data']
     training, test = job.cross_partition(data)
 
-    weight_job = job.Job('weights')
-    weights = weight_job.get_data()['weights']
+    weights = data_job.get_data()['weights']
 
-    predicted, actual, score = shapelet.knn_accuracy(training, test, 1, 4, 5, weights)
+    predicted, actual, score = shapelet.knn_accuracy(training, test, 1, 4, 5, weights, cands)
     score *= 100.
 
     confusion = np.zeros((14, 14))

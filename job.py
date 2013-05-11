@@ -1,4 +1,3 @@
-import pycassa
 import pika
 import json
 import ConfigParser
@@ -7,6 +6,8 @@ import sys
 import datetime
 import socket
 import cPickle
+import psycopg2
+import psycopg2.extras
 
 _config = None
 def config(section):
@@ -24,41 +25,36 @@ class Job(object):
 
     def __init__(self, name):
         self.name = name
-        self.rabbitmq_conn = None
-        self.rabbitmq_channel = None
-        self.cassandra_pool = None
+
+        db_type = config('job')['db']
+        if db_type == 'postgresql':
+            self.db = PostgreSQL(self.name)
+        else:
+            raise Exception('Unknown db: %s' % db_type)
+
+        queue_type = config('job')['queue']
+        if queue_type == 'rabbitmq':
+            self.queue = RabbitMQ(self.name)
+        else:
+            raise Exception('Unknown queue: %s' % queue_type)
+
         self.hostname = socket.gethostname()
 
     def put_data(self, data):
-        self.rabbitmq().basic_publish(
-            exchange='',
-            routing_key=self.name,
-            body=json.dumps(data)
-        )
+        self.queue.put(self.name, json.dumps(data))
 
     def run_worker(self, do_work):
         while True:
-            method, header_frame, body = self.rabbitmq().basic_get(self.name)
+            item = self.queue.get()
 
-            if method is None: # empty queue
+            if item is None:
                 break
 
-            try:
-                data = json.loads(body)
-            except ValueError:
-                self.log('Failed to parse as json: %s' % body)
-                return
-
-            #try:
-            do_work(self, data)
-            self.rabbitmq().basic_ack(method.delivery_tag)
-            #except BlahException, e:
-            #    self.log_exception(e)
+            do_work(self, item.data)
+            item.ack()
 
     def log(self, message):
         print message
-        self.cassandra('log').insert(
-            self.hostname, {datetime.datetime.utcnow(): message})
 
     def log_exception(self, exception):
         exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -67,116 +63,37 @@ class Job(object):
             exc_type, fname, exc_tb.tb_lineno))
 
     def store(self, key, value):
-        self.cassandra('data').insert(key, {'data': cPickle.dumps(value)})
+        self.db.store(key, value)
 
     def store_instance(self, key, value):
-        self.cassandra('instance_data').insert(
-            key, {'%d-%d' % (INDEX(), COUNT()): cPickle.dumps(value)})
+        self.db.store(key, value, '%d-%d' % (INDEX(), COUNT()))
 
     def clear(self):
         try:
-            self.rabbitmq().queue_delete(queue=self.name)
+            self.queue.clear()
         except Exception, e:
             sys.stderr.write('Failed to clear queue: %s\n' % str(e))
         try:
-            self.cassandra_sys().drop_keyspace(self.name)
+            self.db.clear()
         except Exception, e:
             sys.stderr.write('Failed to clear database: %s\n' % str(e))
 
-    def get_log(self, max_count=2000):
-        return list(self.cassandra('log')
-                    .get_range(column_count=max_count))
-
-    def get_data(self, row_count=None):
-        data = {}
-        for key, columns in self.cassandra('data').get_range(
-            row_count=row_count):
-            data[key] = cPickle.loads(columns['data'])
-        return data
-
-    def get_data_count(self):
-        count = 0
-        for _ in self.cassandra('data').get_range(
-            column_count=0, filter_empty=False):
-            count +=1
-        return count
+    def get_data(self, key=None, row_limit=None):
+        return self.db.fetch(key, row_limit=row_limit)
 
     def reduce_instances(self, key, count, reducer):
-        columns = ['%d-%d' % (i, count) for i in range(count)]
-        data = []
-        for value in self.cassandra('instance_data').get(
-            key=key, columns=columns).values():
-            data.append(cPickle.loads(value))
+        instance_keys = ['%d-%d' % (i, count) for i in range(count)]
+        data = self.db.fetch(key, instance_keys)
         return reduce(reducer, data)
 
     def get_queue_length(self):
-        return self.rabbitmq().queue_declare(
-            self.name, passive=True).method.message_count
-
-    def rabbitmq(self):
-        if self.rabbitmq_channel is not None:
-            return self.rabbitmq_channel
-        self.rabbitmq_conn = pika.BlockingConnection(
-            pika.ConnectionParameters(
-                host=config('rabbitmq')['host'],
-                port=int(config('rabbitmq')['port']),
-                credentials=pika.PlainCredentials(
-                    config('rabbitmq')['user'],
-                    config('rabbitmq')['pass'],
-                )
-            ))
-        self.rabbitmq_channel = self.rabbitmq_conn.channel()
-        self.rabbitmq_channel.queue_declare(queue=self.name)
-
-        return self.rabbitmq_channel
-
-    def cassandra_sys(self, column_family=None):
-        server = '%s:%s' % (config('cassandra')['host'],
-                            int(config('cassandra')['port']))
-
-        credentials = {'username': config('cassandra')['user'],
-                       'password': config('cassandra')['pass']}
-
-        return pycassa.system_manager.SystemManager(server, credentials)
-        
-    def cassandra(self, column_family=None):
-        if self.cassandra_pool is None:
-            server = '%s:%s' % (config('cassandra')['host'],
-                                int(config('cassandra')['port']))
-
-            credentials = {'username': config('cassandra')['user'],
-                           'password': config('cassandra')['pass']}
-
-            sys = pycassa.system_manager.SystemManager(server, credentials)
-            if self.name not in sys.list_keyspaces():
-                sys.create_keyspace(self.name,
-                                    strategy_options={'replication_factor': '1'})
-                sys.create_column_family(self.name, 'data',
-                                         key_validation_class=pycassa.ASCII_TYPE,
-                                         comparator_type=pycassa.ASCII_TYPE,
-                                         default_validation_class=pycassa.BYTES_TYPE)
-                sys.create_column_family(self.name, 'instance_data',
-                                         key_validation_class=pycassa.ASCII_TYPE,
-                                         comparator_type=pycassa.ASCII_TYPE,
-                                         default_validation_class=pycassa.BYTES_TYPE)
-                sys.create_column_family(self.name, 'log',
-                                         comparator_type=pycassa.TIME_UUID_TYPE,
-                                         key_validation_class=pycassa.ASCII_TYPE,
-                                         default_validation_class=pycassa.ASCII_TYPE)
-
-            self.cassandra_pool = pycassa.pool.ConnectionPool(
-                self.name, [server], credentials, timeout=60
-            )
-
-        if column_family:
-            return pycassa.ColumnFamily(self.cassandra_pool, column_family)
-        return self.cassandra_pool
+        return self.queue.length()
 
 
 def INDEX():
     host_count = int(os.environ.get('HOST_COUNT', 1))
-    host_index = int(os.environ.get('HOST_INDEX', 1))
-    return int(os.environ.get('INSTANCE_INDEX', 1)) + host_index * int(os.environ.get('INSTANCE_COUNT', 1))
+    host_index = int(os.environ.get('HOST_INDEX', 0))
+    return int(os.environ.get('INSTANCE_INDEX', 0)) + host_index * int(os.environ.get('INSTANCE_COUNT', 1))
 
 def COUNT():
     return int(os.environ.get('HOST_COUNT', 1)) * int(os.environ.get('INSTANCE_COUNT', 1))
@@ -192,3 +109,151 @@ def cross_partition(data):
         else:
             list1.append(d)
     return list1, list2
+
+class RabbitMQ:
+
+    def __init__(self, name):
+        self.name = name
+        self.channel = None
+
+    def get(self):
+        method, header_frame, body = self._channel().basic_get(self.name)
+
+        if method is None: # empty queue
+            return None
+
+        return RabbitItem(method, header_frame, body)
+
+    def put(self, data):
+        self._channel().basic_publish(
+            exchange='',
+            routing_key=self.name,
+            body=data
+        )
+
+    def clear(self):
+        self._channel().queue_delete(queue=self.name)
+
+    def length(self):
+        return self._channel().queue_declare(
+            self.name, passive=True).method.message_count
+
+    def _channel(self):
+        if self.channel is not None:
+            return self.channel
+        self.conn = pika.BlockingConnection(
+            pika.ConnectionParameters(
+                host=config('rabbitmq')['host'],
+                port=int(config('rabbitmq')['port']),
+                credentials=pika.PlainCredentials(
+                    config('rabbitmq')['user'],
+                    config('rabbitmq')['pass'],
+                )
+            ))
+        self.channel = self.conn.channel()
+        self.channel.queue_declare(queue=self.name)
+
+        return self.channel
+        
+class RabbitItem:
+
+    def __init__(method, header_frame, body, channel):
+        self.data = json.loads(body)
+        self.method = method
+        self.header_frame = header_frame
+        self.channel = channel
+
+    def ack(self):
+        self.channel.basic_ack(self.method.delivery_tag)
+
+class PostgreSQL:
+
+    def __init__(self, name):
+        self.name = name
+        self.conn = None
+        self.cursor = None
+
+    def store(self, key, value, instance_key=None):
+        if instance_key is None:
+            instance_key = ''
+
+        # pg upsert
+        self._cursor().execute(
+            'update ' + self.name +
+            ' set value = %s where key = %s and instance_key = %s',
+            (cPickle.dumps(value), key, instance_key))
+
+        self._cursor().execute(
+            'insert into ' + self.name +
+            ' (key, value, instance_key) select %s, %s, %s' +
+            ' where not exists (select 1 from ' + self.name +
+            ' where key = %s and instance_key = %s)',
+            (key, cPickle.dumps(value), instance_key, key, instance_key))
+        self._conn().commit()
+        
+    def clear(self):
+        self._cursor().execute('drop table %s' % self.name)
+
+    def fetch(self, key=None, instance_keys=None, row_limit=None):
+        sql = 'select key, value, instance_key from %s' % self.name
+        where = []
+        params = []
+        if key is not None:
+            where.append('key = %s')
+            params.append(key)
+        if instance_keys:
+            where.append('instance_count in %s')
+            params.append(tuple(instance_keys))
+        else:
+            where.append('instance_index is null')
+
+        if where:
+            sql += ' where ' + ' and '.join(where)
+
+        self._cursor().execute(sql, params)
+
+        res = self._cursor().fetchall()
+
+        if not res:
+            return []
+
+        data = {}
+        for item in res:
+            k = item['key']
+            if key in data:
+                data[k].append(item['value'])
+            else:
+                data[k] = [item['value']]
+
+        if key is None:
+            return data
+        return data[key]
+
+    def _conn(self):
+        if self.conn:
+            return self.conn
+
+        self.conn = psycopg2.connect(host=config('postgresql')['host'],
+                                user=config('postgresql')['user'],
+                                password=config('postgresql')['pass'],
+                                database=config('postgresql')['database'])
+
+        self.cursor = self.conn.cursor()
+
+        self.cursor.execute('select 1 from information_schema.tables where table_name = \'%s\'' % self.name)
+
+        if self.cursor.fetchone() != (1,):
+            self.cursor.execute('create table %s ( id serial primary key, key varchar(50) not null, value text not null, instance_index int, instance_count int )' % self.name)
+            try:
+                self.conn.commit()
+            except psycopg2.ProgrammingError:
+                self.conn.rollback()
+
+        return self.conn
+
+    def _cursor(self):
+        if self.cursor:
+            return self.cursor
+        self.cursor = self._conn().cursor(
+            cursor_factory=psycopg2.extras.DictCursor)
+        return self.cursor

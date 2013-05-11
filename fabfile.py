@@ -175,10 +175,10 @@ end script' > /etc/init/%s.conf''' %
          (_host_index(), len(env.hosts), workers_per_instance, remote_code_dir,
           script, job_name, args, job_name, job_name, job_name))
 
+    _set_instance_name(instance, job_name)
+
     for i in xrange(workers_per_instance):
         sudo('start %s N=%d' % (job_name, i))
-
-    _set_instance_name(instance, job_name)
 
     log(True)
 
@@ -226,7 +226,7 @@ def info():
         launch_time = dateutil.parser.parse(i.launch_time)
         launch_time = launch_time.astimezone(dateutil.tz.tzlocal())
         print '%10s %15s %15s %15s %10s %20s' % (
-            i.id, i.ip_address, i.tags['Name'], i.instance_type, i.state,
+            i.id, i.ip_address, i.tags.get('Name', '[unknown]'), i.instance_type, i.state,
             launch_time.strftime('%Y-%m-%d %H:%M:%S'))
 
 def uncache():

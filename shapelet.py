@@ -106,6 +106,11 @@ def classify(cands, seq, nclasses):
     return class_prob
 
 def get_seq_support(cands, seq):
+    assert isinstance(cands, list)
+    assert isinstance(cands[0], tuple)
+
+    seq = downsample(seq)
+    
     seq_len = len(seq)
     cands_len = len(cands)
     cand_seq_lens = np.array([len(c) for c in cands])
@@ -129,8 +134,6 @@ def weigh_near(nearest):
     return nearest_map
 
 def classify_knn(classes, support, cands, seq, k, w):
-    seq = downsample(seq)
-
     seq_support = get_seq_support(cands, seq)
 
     seq_support *= w

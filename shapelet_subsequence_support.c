@@ -16,10 +16,8 @@ for(int outer = 0; outer < len_seq_candidates; outer ++) {
     ncands = PySequence_Size(cands);
     for(int i = 0; i < ncands; i ++) {
       candidate = PySequence_GetItem(cands, i);
-      cls = PyObject_GetAttrString(candidate, "cls");
       example = PyObject_GetAttrString(candidate, "example");
       subsequence_support[outer * total_examples + PyInt_AsLong(example)] += 1;
-      Py_DECREF(cls);
       Py_DECREF(example);
     }
     Py_DECREF(cands);

@@ -9,6 +9,7 @@ import numpy as np
 from shapelet import *
 
 def random_weights(job_name):
+    k = 5
 
     j = job.Job(job_name)
 
@@ -17,38 +18,14 @@ def random_weights(job_name):
     data = data[0:500]
     training, test = job.cross_partition(data)
 
-    all_classes = np.empty((0, 0))
-    all_support = np.empty((0, len(training)))
-    all_candidates = []
+    candidates = data_job.get_data()['cands']
 
-    min_len = 2
-    max_len = 3
-    k = 5
+    classes = np.array([t[0] for t in training])
+    support = np.zeros((len(candidates), len(training)))
+    for i, (cls, seq) in enumerate(training):
+        support[:, i] = get_seq_support(candidates, seq)
 
-    nclasses = max([t[0] for t in training]) + 1
-
-    for length in xrange(min_len, max_len):
-
-        classes, support, candidates = get_subsequence_support(cands, length, nclasses, training)
-
-        normalise_subsequence_support(support, training)
-
-        support, candidates, seqs = get_pruned_candidates(classes, support, candidates)
-
-        all_classes = classes
-        all_support = np.vstack((all_support, support))
-        all_candidates += map(tuple, candidates)
-
-    #print len(all_candidates)
-
-    classes = all_classes
-    support = all_support
-    candidates = all_candidates
-
-    score = 0
-
-    all_actual = []
-    all_predicted = []
+    normalise_subsequence_support(support, training)
 
     nfeatures = support.shape[0]
 
