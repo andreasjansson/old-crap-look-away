@@ -19,7 +19,8 @@ def generate_candidates(data, length):
     return candidates
 
 _subsequence_support_code = None
-def get_subsequence_support(seq_candidates, seq_len, nclasses, data):
+def get_subsequence_support(seq_candidates, data):
+    seq_len = len(seq_candidates.keys()[0])
     subsequence_support = np.zeros((len(seq_candidates), len(data)))
     candidate_matrix = np.array(seq_candidates.keys())
     candidates = []
@@ -105,7 +106,13 @@ def classify(cands, seq, nclasses):
 
     return class_prob
 
+_seq_support_code = None
 def get_seq_support(cands, seq):
+    global _seq_support_code
+    if _seq_support_code is None:
+        source_filename = os.path.dirname(os.path.realpath(__file__)) + '/shapelet_seq_support.c'
+        _seq_support_code = open(source_filename, 'r').read()
+
     assert isinstance(cands, list)
     assert isinstance(cands[0], tuple)
 
@@ -116,9 +123,9 @@ def get_seq_support(cands, seq):
     cand_seq_lens = np.array([len(c) for c in cands])
     seq_support = np.zeros(len(cands))
 
-    source_filename = os.path.dirname(os.path.realpath(__file__)) + '/shapelet_seq_support.c'
+
     scipy.weave.inline(
-        open(source_filename, 'r').read(),
+        _seq_support_code,
         ['cands', 'cands_len', 'cand_seq_lens', 'seq', 'seq_len', 'seq_support'])
 
     return seq_support
@@ -133,11 +140,12 @@ def weigh_near(nearest):
         nearest_map[cls] += 1 + np.power(near_weight, (k - i + 1) / float(k))
     return nearest_map
 
-def classify_knn(classes, support, cands, seq, k, w):
+def classify_knn(classes, support, cands, seq, k, w=None):
     seq_support = get_seq_support(cands, seq)
 
-    seq_support *= w
-    support = (support.T * w).T
+    if w is not None:
+        seq_support = seq_support * w
+        support = (support.T * w).T
 
     seq_support /= float(len(seq))
 
@@ -171,6 +179,8 @@ def find_subsequences(candidates, seq, length, cls, i):
             candidates[subseq] = [candidate]
 
 def information_gain(data, data1, data2):
+    if len(data1) == 0 or len(data2) == 0:
+        return 0
     entropy1 = entropy(data1) * len(data1) / len(data)
     entropy2 = entropy(data2) * len(data2) / len(data)
     return entropy(data) - (entropy1 + entropy2)
@@ -322,4 +332,100 @@ def test_random_weights(support, classes, weights):
     print dists.sum() / dists.diagonal().sum()
 
     return dists
+
+def cor(support):
+    return scipy.spatial.distance.squareform(
+        scipy.spatial.distance.pdist(support.T, 'cityblock'))
+
+
+def classify_dt(dt, seq, cands):
+    node = dt
+    while not hasattr(node, 'cls'): # isinstance DTLeaf doesn't seem to work???
+        sup = (get_seq_support([tuple(node.shapelet)], seq) / float(len(seq)))[0]
+        if sup < node.split_point:
+            node = node.left
+        else:
+            node = node.right
+
+    return node.cls
+
+def build_dt(support, classes, cands):
+
+    print len(classes), entropy(classes), classes_str(classes)
+
+    if entropy(classes) < 0.3 or len(classes) < 15:
+        return DTLeaf(classes)
+
+    # prune support
+    cands_i, value = optimal_split(support, classes)
+    indices1 = support[cands_i] <= value
+    indices2 = support[cands_i] > value
+    classes1 = classes[indices1]
+    classes2 = classes[indices2]
+
+    return DTNode(cands[cands_i], value, classes,
+                  build_dt(support.T[indices1].T, classes1, cands),
+                  build_dt(support.T[indices2].T, classes2, cands))
+
+
+def optimal_split(support, classes, steps=20):
+    best_gain = 0
+    best_split = None
+    for i in xrange(len(support)):
+        s = support[i,:]
+        low = np.min(s)
+        high = np.max(s)
+        for x in np.linspace(low, high, steps)[1:-1]:
+            classes1 = classes[s <= x]
+            classes2 = classes[s > x]
+            gain = information_gain(classes, classes1, classes2)
+            if gain > best_gain:
+                best_gain = gain
+                best_split = (i, x)
+    return best_split
+
+
+def classes_str(classes):
+    b = np.bincount(classes)
+    bw = np.where(b > 0)[0]
+    return str(dict(zip(list(bw), list(b[bw]))))
+
+class DTNode(object):
+    def __init__(self, shapelet, split_point, classes, left=None, right=None):
+        self.shapelet = list(shapelet)
+        self.split_point = split_point
+        self.classes = classes
+        self.left = left
+        self.right = right
+
+    def print_node(self, level=0):
+        before = '| ' * (level)
+        if level > 0:
+            before = before + '\n' + '| ' * (level - 1) + '+-'
+        s = '%s%s (%.3f) %s\n' % (before, str(self.shapelet),
+                                       entropy(self.classes), classes_str(self.classes))
+        s += self.left.print_node(level + 1)
+        s += self.right.print_node(level + 1)
+        return s
+
+    def __str__(self):
+        return self.print_node()
+
+    def __repr__(self):
+        return self.__str__()
+
+class DTLeaf(object):
+    def __init__(self, classes):
+        self.classes = classes
+        self.cls = np.argmax(np.bincount(classes))
+
+    def print_node(self, level=0):
+        before = '| ' * level + '\n' + '| ' * (level - 1) + '+-> '
+        return '%s%s\n' % (before, str(self))
+
+    def __str__(self):
+        return '%s (%.3f) %s' % (self.cls, entropy(self.classes), classes_str(self.classes))
+
+    def __repr__(self):
+        return self.__str__()
 
