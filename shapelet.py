@@ -64,7 +64,7 @@ def get_pruned_candidates(classes, subsequence_support, candidate_matrix):
             class_means[i] = power_mean(class_examples)
         class_matrix[row, :] = class_means
 
-    support_threshold = .001
+    support_threshold = .00001
     seqs = []
 
     indices = []
@@ -133,14 +133,38 @@ def get_seq_support(cands, seq):
 def weigh_near(nearest):
     k = len(nearest)
     nearest_map = {}
-    near_weight = 10
+    near_weight = 1
     for i, cls in enumerate(nearest):
         if cls not in nearest_map:
             nearest_map[cls] = 0
         nearest_map[cls] += 1 + np.power(near_weight, (k - i + 1) / float(k))
     return nearest_map
 
-def classify_knn(classes, support, cands, seq, k, w=None):
+def get_local_radii(support, classes):
+    radii = np.zeros((support.shape[1]))
+    support_t = support.T
+    for i, s in enumerate(support_t):
+        dists = np.abs(s - support_t).sum(1)
+        near = np.argsort(dists)[1:]
+        closest_same = near[classes[near] == classes[i]][0]
+        radii[i] = dists[closest_same]
+    return radii
+
+def get_local_weights(support, classes, k=10):
+    local_weights = np.zeros(support.shape) + 1.
+    support_t = support.T
+    for i, s in enumerate(support_t):
+        near = np.argsort(np.abs(s - support_t).sum(1))[1:]
+        closest_same = near[classes[near] == classes[i]][0]
+        closest_other = near[:k][classes[near[:k]] != classes[i]]
+        if not len(closest_other):
+            continue
+        closest_other = closest_other
+        w = 1 + np.abs(s - support[:, closest_other].T).sum(0) - np.abs(s - support[:, closest_same])
+        local_weights[:,i] = w
+    return local_weights
+
+def classify_knn(classes, support, cands, seq, k, w=None, local_weights=None):
     seq_support = get_seq_support(cands, seq)
 
     if w is not None:
@@ -149,17 +173,24 @@ def classify_knn(classes, support, cands, seq, k, w=None):
 
     seq_support /= float(len(seq))
 
+    #local_weights = get_local_weights(support, classes)
+    #local_radii = get_local_radii(support, classes)
+
     distances = np.zeros(support.shape[1])
 
     for i, example_support in enumerate(support.T):
         #example_support /= sum(example_support)
-        distances[i] = np.sum(np.abs(example_support - seq_support))
+        if local_weights is None:
+            distances[i] = np.sum(np.abs(example_support - seq_support))
+        else:
+            distances[i] = np.sum(np.abs(example_support - seq_support) * local_weights[:,i])
         #distances[i] = np.sum(example_support * seq_support)
 
     nearest = classes[np.argsort(distances)[::1]][:k]
     nearest_map = weigh_near(nearest)
 
-    #print zip(np.argsort(distances), nearest), {k: int(v) for k, v in nearest_map.iteritems()}
+    print zip(np.argsort(distances), nearest), {k: int(v) for k, v in nearest_map.iteritems()}
+
 
     return max(nearest_map, key=nearest_map.get)
 
@@ -223,7 +254,7 @@ def normalise_candidates(candidates):
         candidates[i] = (c[0], c[1] / colsums)
     return candidates
 
-def power_mean(x, p=1./2):
+def power_mean(x, p=.5):
     x = np.power(x, p)
     return np.power(sum(x) / float(len(x)), 1./p)
 
@@ -245,12 +276,13 @@ def to_features(data, candidates):
 
     return classes, occurrences
 
-def sum_support_by_class(data, support):
-    nclasses = max([d[0] for d in data]) + 1
+def sum_support_by_class(support, classes):
+    nclasses = max(classes) + 1
+    nperclass = np.bincount(classes)
     cls_support = np.zeros((support.shape[0], nclasses))
-    for i, d in enumerate(data):
-        cls_support[:, d[0]] += support[:, i]
-    cls_support /= cls_support.sum(0)
+    for i, c in enumerate(classes):
+        cls_support[:, c] += support[:, i]
+    cls_support /= nperclass
     return cls_support
 
 def knn_accuracy(training, test, min_len, max_len, k):
@@ -265,11 +297,11 @@ def knn_accuracy(training, test, min_len, max_len, k):
     for length in xrange(min_len, max_len):
 
         cands = generate_candidates(training, length)
-        classes, support, candidates = get_subsequence_support(cands, length, nclasses, training)
+        classes, support, candidates = get_subsequence_support(cands, training)
 
         normalise_subsequence_support(support, training)
 
-        support, candidates, seqs = get_pruned_candidates(classes, support, candidates)
+        support, candidates, seqs = get_pruned_candidates(np.array(classes), support, candidates)
 
         all_classes = classes
         all_support = np.vstack((all_support, support))
@@ -353,7 +385,7 @@ def build_dt(support, classes, cands):
 
     print len(classes), entropy(classes), classes_str(classes)
 
-    if entropy(classes) < 0.3 or len(classes) < 15:
+    if entropy(classes) < 0.5 or len(classes) < 15:
         return DTLeaf(classes)
 
     # prune support
@@ -368,7 +400,7 @@ def build_dt(support, classes, cands):
                   build_dt(support.T[indices2].T, classes2, cands))
 
 
-def optimal_split(support, classes, steps=20):
+def optimal_split(support, classes, steps=4):
     best_gain = 0
     best_split = None
     for i in xrange(len(support)):
@@ -383,6 +415,50 @@ def optimal_split(support, classes, steps=20):
                 best_gain = gain
                 best_split = (i, x)
     return best_split
+
+def classify_dt_by_order(dt, seq, cands):
+    node = dt
+
+    while not hasattr(node, 'cls'): # isinstance DTLeaf doesn't seem to work???
+        sup = (get_seq_support([tuple(node.shapelet1), tuple(node.shapelet2)], seq) / float(len(seq)))
+        if sup[0] <= sup[1]:
+            node = node.left
+        else:
+            node = node.right
+
+    return node.cls
+
+def build_dt_by_order(support, classes, cands):
+
+    print len(classes), entropy(classes), classes_str(classes)
+
+    if entropy(classes) < 0.3 or len(classes) < 15:
+        return DTLeaf(classes)
+
+    # prune support
+    first_i, second_i = optimal_split_by_order(support, classes)
+    indices1 = support[first_i] <= support[second_i]
+    indices2 = support[first_i] > support[second_i]
+    classes1 = classes[indices1]
+    classes2 = classes[indices2]
+
+    return DTNodeByOrder(cands[first_i], cands[second_i], classes,
+                  build_dt_by_order(support.T[indices1].T, classes1, cands),
+                  build_dt_by_order(support.T[indices2].T, classes2, cands))
+
+def optimal_split_by_order(support, classes):
+    best_gain = 0
+    best_split = None
+    for i in xrange(len(support)):
+        for j in xrange(len(support)):
+            classes1 = classes[support[i] <= support[j]]
+            classes2 = classes[support[i] > support[j]]
+            gain = information_gain(classes, classes1, classes2)
+            if gain > best_gain:
+                best_gain = gain
+                best_split = (i, j)
+    return best_split
+
 
 
 def classes_str(classes):
@@ -414,6 +490,25 @@ class DTNode(object):
     def __repr__(self):
         return self.__str__()
 
+class DTNodeByOrder(DTNode):
+    def __init__(self, shapelet1, shapelet2, classes, left=None, right=None):
+        self.shapelet1 = list(shapelet1)
+        self.shapelet2 = list(shapelet2)
+        self.classes = classes
+        self.left = left
+        self.right = right
+
+    def print_node(self, level=0):
+        before = '| ' * (level)
+        if level > 0:
+            before = before + '\n' + '| ' * (level - 1) + '+-'
+        s = '%s%s <= %s (%.3f) %s\n' % (before, str(self.shapelet1), str(self.shapelet2),
+                                       entropy(self.classes), classes_str(self.classes))
+        s += self.left.print_node(level + 1)
+        s += self.right.print_node(level + 1)
+        return s
+
+
 class DTLeaf(object):
     def __init__(self, classes):
         self.classes = classes
@@ -429,3 +524,25 @@ class DTLeaf(object):
     def __repr__(self):
         return self.__str__()
 
+
+def confusion_matrix(actual, predicted):
+    nclasses = max(np.max(actual), np.max(predicted)) + 1
+    confusion = np.zeros((nclasses, nclasses), dtype=int)
+    for p, a in zip(predicted, actual):
+        confusion[p, a] += 1
+    return confusion
+
+def random_binary_weights(support, classes, test, cands):
+    pass
+
+
+def within_class_covariance_matrix(support, classes):
+    mat = np.zeros((len(classes), len(classes)))
+    for i, c in enumerate(classes):
+        pass
+
+def lda(support, classes):
+    between_class = np.cov(sum_support_by_class(support, classes))
+    within_class = within_class_covariance_matrix(support, classes)
+    
+    
