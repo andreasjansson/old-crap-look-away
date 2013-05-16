@@ -1,5 +1,5 @@
 import numpy as np
-import scipy.weave
+import scipy
 import os
 import math
 import random
@@ -164,35 +164,20 @@ def get_local_weights(support, classes, k=10):
         local_weights[:,i] = w
     return local_weights
 
-def classify_knn(classes, support, cands, seq, k, w=None, local_weights=None):
-    seq_support = get_seq_support(cands, seq)
+def classify_knn(classes, support, cands, seq, k, means, means_k):
+    assert(means_k <= k)
 
-    if w is not None:
-        seq_support = seq_support * w
-        support = (support.T * w).T
+    seq_support = get_seq_support(cands, seq)
 
     seq_support /= float(len(seq))
 
-    #local_weights = get_local_weights(support, classes)
-    #local_radii = get_local_radii(support, classes)
+    near = np.abs(seq_support - support.T).sum(1).argsort()[:k]
+    near_means = near[np.abs(seq_support - means[:, near].T).sum(1).argsort()][:means_k]
+    cls = int(scipy.stats.mode(classes[near_means])[0][0])
 
-    distances = np.zeros(support.shape[1])
+    print classes[near], classes[near_means]
 
-    for i, example_support in enumerate(support.T):
-        #example_support /= sum(example_support)
-        if local_weights is None:
-            distances[i] = np.sum(np.abs(example_support - seq_support))
-        else:
-            distances[i] = np.sum(np.abs(example_support - seq_support) * local_weights[:,i])
-        #distances[i] = np.sum(example_support * seq_support)
-
-    nearest = classes[np.argsort(distances)[::1]][:k]
-    nearest_map = weigh_near(nearest)
-
-    print zip(np.argsort(distances), nearest), {k: int(v) for k, v in nearest_map.iteritems()}
-
-
-    return max(nearest_map, key=nearest_map.get)
+    return cls
 
 def downsample(seq):
     # disabled temporarily while dealing with symbolic data
@@ -285,11 +270,12 @@ def sum_support_by_class(support, classes):
     cls_support /= nperclass
     return cls_support
 
-def knn_accuracy(training, test, min_len, max_len, k):
+def knn_accuracy(training, test, min_len, max_len, k=20, means_k=5):
     global all_classes, all_support, all_candidates
 
     all_classes = np.empty((0, 0))
     all_support = np.empty((0, len(training)))
+    all_means = np.empty(all_support.shape)
     all_candidates = []
 
     nclasses = max([t[0] for t in training]) + 1
@@ -300,11 +286,12 @@ def knn_accuracy(training, test, min_len, max_len, k):
         classes, support, candidates = get_subsequence_support(cands, training)
 
         normalise_subsequence_support(support, training)
-
         support, candidates, seqs = get_pruned_candidates(np.array(classes), support, candidates)
+        means = get_neighbourhood_class_means(support, classes)
 
         all_classes = classes
         all_support = np.vstack((all_support, support))
+        all_means = np.vstack((all_means, means))
         all_candidates += map(tuple, candidates)
 
         #print 'length: %d, candidates: %d, total candidates: %d' % (length, len(candidates), len(cands))
@@ -314,6 +301,7 @@ def knn_accuracy(training, test, min_len, max_len, k):
     classes = all_classes
     support = all_support
     candidates = all_candidates
+    means = all_means
 
     score = 0
 
@@ -324,7 +312,7 @@ def knn_accuracy(training, test, min_len, max_len, k):
 
     predicted = []
     for d in test:
-        predicted.append(classify_knn(classes, support, candidates, d[1], k))
+        predicted.append(classify_knn(classes, support, candidates, d[1], k, means, means_k))
         print d[0]
 
     actual = np.array([d[0] for d in test])
@@ -532,17 +520,14 @@ def confusion_matrix(actual, predicted):
         confusion[p, a] += 1
     return confusion
 
-def random_binary_weights(support, classes, test, cands):
-    pass
-
-
 def within_class_covariance_matrix(support, classes):
     mat = np.zeros((len(classes), len(classes)))
     for i, c in enumerate(classes):
         pass
 
-def lda(support, classes):
-    between_class = np.cov(sum_support_by_class(support, classes))
-    within_class = within_class_covariance_matrix(support, classes)
-    
-    
+def get_neighbourhood_class_means(support, classes, k=20):
+    means = np.zeros(support.shape)
+    for i in np.arange(support.shape[1]):
+        near = np.argsort(np.sum(np.abs(support[:, i] - support.T), 1))[:k]
+        means[:, i] = support[:, near[classes[near] == classes[i]]].mean(1)
+    return means
