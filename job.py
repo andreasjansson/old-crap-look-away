@@ -202,10 +202,10 @@ class PostgreSQL:
             where.append('key = %s')
             params.append(key)
         if instance_keys:
-            where.append('instance_count in %s')
+            where.append('instance_key in %s')
             params.append(tuple(instance_keys))
         else:
-            where.append('instance_index is null')
+            where.append("instance_key = ''")
 
         if where:
             sql += ' where ' + ' and '.join(where)
@@ -220,10 +220,11 @@ class PostgreSQL:
         data = {}
         for item in res:
             k = item['key']
+            v = cPickle.loads(item['value'])
             if key in data:
-                data[k].append(item['value'])
+                data[k].append(v)
             else:
-                data[k] = [item['value']]
+                data[k] = [v]
 
         if key is None:
             return data
@@ -242,8 +243,9 @@ class PostgreSQL:
 
         self.cursor.execute('select 1 from information_schema.tables where table_name = \'%s\'' % self.name)
 
-        if self.cursor.fetchone() != (1,):
-            self.cursor.execute('create table %s ( id serial primary key, key varchar(50) not null, value text not null, instance_index int, instance_count int )' % self.name)
+        row = self.cursor.fetchone()
+        if row != (1,):
+            self.cursor.execute('create table %s ( id serial primary key, key varchar(50) not null, value text not null, instance_key varchar(200) )' % self.name)
             try:
                 self.conn.commit()
             except psycopg2.ProgrammingError:

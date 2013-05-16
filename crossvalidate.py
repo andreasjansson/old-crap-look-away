@@ -14,16 +14,18 @@ def crossvalidate_new(job_name):
 
     j = job.Job(job_name)
 
-    data_job = job.Job('sequences')
-    data = data_job.get_data()['data']
+    data_job = job.Job('sequences2')
+    data = data_job.get_data('data')[0]
     training, test = job.cross_partition(data)
 
-    weights = data_job.get_data()['weights']
+    #weights = data_job.get_data()['weights']
 
-    predicted, actual, score = shapelet.knn_accuracy(training, test, 1, 4, 5, weights, cands)
+    predicted, actual, score = shapelet.knn_accuracy(training, test, 1, 4, 25)
     score *= 100.
 
-    confusion = np.zeros((14, 14))
+    nclasses = max([d[0] for d in training]) + 1
+
+    confusion = np.zeros((nclasses, nclasses))
     for p, a in zip(predicted, actual):
         confusion[p, a] += 1
 

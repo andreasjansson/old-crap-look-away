@@ -116,17 +116,21 @@ def get_seq_support(cands, seq):
     assert isinstance(cands, list)
     assert isinstance(cands[0], tuple)
 
-    seq = downsample(seq)
+    seq = downsample(seq.astype(int))
     
     seq_len = len(seq)
     cands_len = len(cands)
     cand_seq_lens = np.array([len(c) for c in cands])
     seq_support = np.zeros(len(cands))
 
-
-    scipy.weave.inline(
-        _seq_support_code,
-        ['cands', 'cands_len', 'cand_seq_lens', 'seq', 'seq_len', 'seq_support'])
+    try:
+        scipy.weave.inline(
+            _seq_support_code,
+            ['cands', 'cands_len', 'cand_seq_lens', 'seq', 'seq_len', 'seq_support'])
+    except TypeError, e:
+        print 'cands_len: ', cands_len
+        print 'seq_len: ', seq_len
+        print e
 
     return seq_support
 
@@ -164,44 +168,36 @@ def get_local_weights(support, classes, k=10):
         local_weights[:,i] = w
     return local_weights
 
-def classify_knn(classes, support, cands, seq, k, w=None, local_weights=None):
+def classify_knn(classes, support, cands, seq, k):
     seq_support = get_seq_support(cands, seq)
 
-    if w is not None:
-        seq_support = seq_support * w
-        support = (support.T * w).T
-
     seq_support /= float(len(seq))
-
-    #local_weights = get_local_weights(support, classes)
-    #local_radii = get_local_radii(support, classes)
 
     distances = np.zeros(support.shape[1])
 
     for i, example_support in enumerate(support.T):
-        #example_support /= sum(example_support)
-        if local_weights is None:
-            distances[i] = np.sum(np.abs(example_support - seq_support))
-        else:
-            distances[i] = np.sum(np.abs(example_support - seq_support) * local_weights[:,i])
-        #distances[i] = np.sum(example_support * seq_support)
+        distances[i] = np.power(np.sum(np.power(np.abs(example_support - seq_support), 2.)), 1/2.)
 
     nearest = classes[np.argsort(distances)[::1]][:k]
     nearest_map = weigh_near(nearest)
 
-    print zip(np.argsort(distances), nearest), {k: int(v) for k, v in nearest_map.iteritems()}
+    #print zip(np.argsort(distances), nearest), {k: int(v) for k, v in nearest_map.iteritems()}
 
 
     return max(nearest_map, key=nearest_map.get)
 
 def downsample(seq):
     # disabled temporarily while dealing with symbolic data
-    #seq = np.round(np.array(seq) * 24 / 53.).astype(int)
+    seq = np.mod(np.array(seq), 53.).astype(int)
+    #seq = np.round(np.array(seq) * 12 / 53.).astype(int)
     return tuple(seq)
 
 def find_subsequences(candidates, seq, length, cls, i):
     for t in xrange(len(seq) - length):
         subseq = seq[t : t + length]
+        if any([math.isnan(x) for x in subseq]):
+            continue
+
         candidate = Candidate(subseq, cls, i)
         subseq = downsample(subseq)
         if subseq in candidates:
@@ -298,7 +294,6 @@ def knn_accuracy(training, test, min_len, max_len, k):
 
         cands = generate_candidates(training, length)
         classes, support, candidates = get_subsequence_support(cands, training)
-
         normalise_subsequence_support(support, training)
 
         support, candidates, seqs = get_pruned_candidates(np.array(classes), support, candidates)
@@ -325,7 +320,7 @@ def knn_accuracy(training, test, min_len, max_len, k):
     predicted = []
     for d in test:
         predicted.append(classify_knn(classes, support, candidates, d[1], k))
-        print d[0]
+        #print d[0]
 
     actual = np.array([d[0] for d in test])
 
