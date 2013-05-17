@@ -166,7 +166,8 @@ def classify_knn(classes, support, cands, seq, k, means, means_k):
     seq_support /= float(len(seq))
 
     near = np.abs(seq_support - support.T).sum(1).argsort()[:k]
-    near_means = near[(seq_support * means[:, near].T).sum(1).argsort()[::-1]][:means_k]
+    near_means = (seq_support * means.T).sum(1).argsort()[::-1][:means_k]
+    near_means = np.abs(seq_support - means.T).sum(1).argsort()[:means_k]
     #near_means = near[np.abs(seq_support - means[:, near].T).sum(1).argsort()][:means_k]
     cls = int(scipy.stats.mode(classes[near_means])[0][0])
 
@@ -531,13 +532,13 @@ def within_class_covariance_matrix(support, classes):
         pass
 
 def get_neighbourhood_class_means(support, classes, k=5):
-    k = 10
+    k = 5
     means = np.zeros(support.shape)
     for i in np.arange(support.shape[1]):
         near = np.argsort(np.sum(np.abs(support[:, i] - support.T), 1))
         
         means[:, i] = support[:, near[classes[near] == classes[i]][:k]].mean(1)
 
-    means = (means.T / means.sum(1)).T
+    #means = (means.T / means.sum(1)).T
 
     return means
