@@ -409,13 +409,13 @@ def notes_to_audio(notes, sample_rate, window_size=8192, hop_size=2048):
 def get_symbolic_data(txt_path):
     cls = class_from_filename(txt_path)
     df = pandas.read_table(txt_path)
-    seq = np.array(df['Koma53'].T)
+    seq = np.array(df['KomaAE'].T)
     return cls, seq
 
 def to_intervals(seq):
     return seq[1:] - seq[:-1]
 
-def dir_to_data(path, min_examples=40):
+def dir_to_data(path, min_examples=0):
     filenames = glob.glob(path + '/*.txt')
     data = {}
     for filename in filenames:
@@ -436,3 +436,16 @@ def dir_to_data(path, min_examples=40):
             d.append((classes[cls], seq))
 
     return d, class_names
+
+def filter_same_pitch(seq):
+    new_seq = []
+    for s in seq:
+        if (not len(new_seq)) or s != new_seq[-1]:
+            new_seq.append(s)
+    return np.array(new_seq)
+
+def data_filter_same_pitch(data):
+    new_data = []
+    for i, d in enumerate(data):
+        new_data.append((d[0], filter_same_pitch(d[1])))
+    return new_data

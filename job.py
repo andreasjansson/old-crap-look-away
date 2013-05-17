@@ -40,8 +40,12 @@ class Job(object):
 
         self.hostname = socket.gethostname()
 
-    def put_data(self, data):
-        self.queue.put(self.name, json.dumps(data))
+    def enqueue(self, data):
+        self.queue.put(json.dumps(data))
+
+    def enqueue_range(self, n, name='index'):
+        for x in xrange(n):
+            self.enqueue({name: x})
 
     def run_worker(self, do_work):
         while True:
@@ -62,11 +66,11 @@ class Job(object):
         self.log('EXCEPTION: %s in %s (line %d)' % (
             exc_type, fname, exc_tb.tb_lineno))
 
-    def store(self, key, value):
-        self.db.store(key, value)
+    def store(self, key, value, instance_key=None):
+        self.db.store(key, value, str(instance_key))
 
     def store_instance(self, key, value):
-        self.db.store(key, value, '%d-%d' % (INDEX(), COUNT()))
+        self.db.store(key, value, '%d' % INDEX())
 
     def clear(self):
         try:
@@ -81,10 +85,13 @@ class Job(object):
     def get_data(self, key=None, row_limit=None):
         return self.db.fetch(key, row_limit=row_limit)
 
-    def reduce_instances(self, key, count, reducer):
-        instance_keys = ['%d-%d' % (i, count) for i in range(count)]
-        data = self.db.fetch(key, instance_keys)
+    def reduce_instances(self, key, reducer):
+        data = self.db.fetch(key)
         return reduce(reducer, data)
+
+    def reduce_sum(self, key):
+        data = self.db.fetch(key)
+        return sum(data) / float(len(data))
 
     def get_queue_length(self):
         return self.queue.length()
@@ -110,6 +117,7 @@ def cross_partition(data):
             list1.append(d)
     return list1, list2
 
+
 class RabbitMQ:
 
     def __init__(self, name):
@@ -122,7 +130,7 @@ class RabbitMQ:
         if method is None: # empty queue
             return None
 
-        return RabbitItem(method, header_frame, body)
+        return RabbitItem(method, header_frame, body, self._channel())
 
     def put(self, data):
         self._channel().basic_publish(
@@ -139,7 +147,7 @@ class RabbitMQ:
             self.name, passive=True).method.message_count
 
     def _channel(self):
-        if self.channel is not None:
+        if self.channel is not None and self.channel.is_open:
             return self.channel
         self.conn = pika.BlockingConnection(
             pika.ConnectionParameters(
@@ -157,7 +165,7 @@ class RabbitMQ:
         
 class RabbitItem:
 
-    def __init__(method, header_frame, body, channel):
+    def __init__(self, method, header_frame, body, channel):
         self.data = json.loads(body)
         self.method = method
         self.header_frame = header_frame
@@ -192,20 +200,17 @@ class PostgreSQL:
         self._conn().commit()
         
     def clear(self):
+        self._conn().rollback()
         self._cursor().execute('drop table %s' % self.name)
+        self._conn().commit()
 
-    def fetch(self, key=None, instance_keys=None, row_limit=None):
+    def fetch(self, key=None, row_limit=None):
         sql = 'select key, value, instance_key from %s' % self.name
         where = []
         params = []
         if key is not None:
             where.append('key = %s')
             params.append(key)
-        if instance_keys:
-            where.append('instance_key in %s')
-            params.append(tuple(instance_keys))
-        else:
-            where.append("instance_key = ''")
 
         if where:
             sql += ' where ' + ' and '.join(where)

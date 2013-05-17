@@ -116,7 +116,7 @@ def get_seq_support(cands, seq):
     assert isinstance(cands, list)
     assert isinstance(cands[0], tuple)
 
-    seq = downsample(seq.astype(int))
+    seq = downsample(seq)
     
     seq_len = len(seq)
     cands_len = len(cands)
@@ -133,16 +133,6 @@ def get_seq_support(cands, seq):
         print e
 
     return seq_support
-
-def weigh_near(nearest):
-    k = len(nearest)
-    nearest_map = {}
-    near_weight = 1
-    for i, cls in enumerate(nearest):
-        if cls not in nearest_map:
-            nearest_map[cls] = 0
-        nearest_map[cls] += 1 + np.power(near_weight, (k - i + 1) / float(k))
-    return nearest_map
 
 def get_local_radii(support, classes):
     radii = np.zeros((support.shape[1]))
@@ -169,23 +159,30 @@ def get_local_weights(support, classes, k=10):
     return local_weights
 
 def classify_knn(classes, support, cands, seq, k, means, means_k):
-    assert(means_k <= k)
+    assert means_k <= k
 
     seq_support = get_seq_support(cands, seq)
 
     seq_support /= float(len(seq))
 
     near = np.abs(seq_support - support.T).sum(1).argsort()[:k]
-    near_means = near[np.abs(seq_support - means[:, near].T).sum(1).argsort()][:means_k]
+    near_means = near[(seq_support * means[:, near].T).sum(1).argsort()[::-1]][:means_k]
     cls = int(scipy.stats.mode(classes[near_means])[0][0])
 
-    print classes[near], classes[near_means]
+    near_cls = int(scipy.stats.mode(classes[near])[0][0])
+    means_cls = int(scipy.stats.mode(classes[near_means])[0][0])
+
+    if near_cls != means_cls:
+        print near_cls, means_cls, classes[near], classes[near_means]
+    else:
+        print classes[near_means], near_cls
 
     return cls
 
 def downsample(seq):
     # disabled temporarily while dealing with symbolic data
-    seq = np.mod(np.array(seq), 53.).astype(int)
+    #seq = np.mod(np.array(seq), 53.).astype(int)
+    seq = np.array(seq).astype(int)
     #seq = np.round(np.array(seq) * 12 / 53.).astype(int)
     return tuple(seq)
 
@@ -247,7 +244,7 @@ def normalise_candidates(candidates):
         candidates[i] = (c[0], c[1] / colsums)
     return candidates
 
-def power_mean(x, p=.5):
+def power_mean(x, p=1./2):
     x = np.power(x, p)
     return np.power(sum(x) / float(len(x)), 1./p)
 
@@ -294,7 +291,7 @@ def knn_accuracy(training, test, min_len, max_len, k=20, means_k=5):
         classes, support, candidates = get_subsequence_support(cands, training)
         normalise_subsequence_support(support, training)
         support, candidates, seqs = get_pruned_candidates(np.array(classes), support, candidates)
-        means = get_neighbourhood_class_means(support, classes)
+        means = get_neighbourhood_class_means(support, classes, means_k)
 
         all_classes = classes
         all_support = np.vstack((all_support, support))
@@ -303,7 +300,7 @@ def knn_accuracy(training, test, min_len, max_len, k=20, means_k=5):
 
         #print 'length: %d, candidates: %d, total candidates: %d' % (length, len(candidates), len(cands))
 
-    #print len(all_candidates)
+    print len(all_candidates)
 
     classes = all_classes
     support = all_support
@@ -532,9 +529,13 @@ def within_class_covariance_matrix(support, classes):
     for i, c in enumerate(classes):
         pass
 
-def get_neighbourhood_class_means(support, classes, k=20):
+def get_neighbourhood_class_means(support, classes, k=5):
     means = np.zeros(support.shape)
     for i in np.arange(support.shape[1]):
-        near = np.argsort(np.sum(np.abs(support[:, i] - support.T), 1))[:k]
-        means[:, i] = support[:, near[classes[near] == classes[i]]].mean(1)
+        near = np.argsort(np.sum(np.abs(support[:, i] - support.T), 1))
+        
+        means[:, i] = support[:, near[classes[near] == classes[i]][:k]].mean(1)
+
+    means = (means.T / means.sum(1)).T
+
     return means
