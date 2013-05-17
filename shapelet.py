@@ -167,6 +167,7 @@ def classify_knn(classes, support, cands, seq, k, means, means_k):
 
     near = np.abs(seq_support - support.T).sum(1).argsort()[:k]
     near_means = near[(seq_support * means[:, near].T).sum(1).argsort()[::-1]][:means_k]
+    #near_means = near[np.abs(seq_support - means[:, near].T).sum(1).argsort()][:means_k]
     cls = int(scipy.stats.mode(classes[near_means])[0][0])
 
     near_cls = int(scipy.stats.mode(classes[near])[0][0])
@@ -300,7 +301,7 @@ def knn_accuracy(training, test, min_len, max_len, k=20, means_k=5):
 
         #print 'length: %d, candidates: %d, total candidates: %d' % (length, len(candidates), len(cands))
 
-    print len(all_candidates)
+    #print len(all_candidates)
 
     classes = all_classes
     support = all_support
@@ -530,6 +531,7 @@ def within_class_covariance_matrix(support, classes):
         pass
 
 def get_neighbourhood_class_means(support, classes, k=5):
+    k = 10
     means = np.zeros(support.shape)
     for i in np.arange(support.shape[1]):
         near = np.argsort(np.sum(np.abs(support[:, i] - support.T), 1))
