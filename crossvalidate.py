@@ -18,7 +18,7 @@ def crossvalidate_queue_do_work(worker, data):
     training = data[:index] + data[(index + 1):]
     test = [data[index]]
 
-    predicted, actual, score = shapelet.knn_accuracy(training, test, 1, 4, 15, 7)
+    predicted, actual, score = shapelet.knn_accuracy(training, test, 1, 4, 15, 10)
 
     nclasses = max([d[0] for d in training]) + 1
 

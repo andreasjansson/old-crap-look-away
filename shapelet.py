@@ -64,7 +64,7 @@ def get_pruned_candidates(classes, subsequence_support, candidate_matrix):
             class_means[i] = power_mean(class_examples)
         class_matrix[row, :] = class_means
 
-    support_threshold = .00001
+    support_threshold = .00002
     seqs = []
 
     indices = []
@@ -166,7 +166,7 @@ def classify_knn(classes, support, cands, seq, k, means, means_k):
     seq_support /= float(len(seq))
 
     near = np.abs(seq_support - support.T).sum(1).argsort()[:k]
-    near_means = (seq_support * means.T).sum(1).argsort()[::-1][:means_k]
+    #near_means = (seq_support * means.T).sum(1).argsort()[::-1][:means_k]
     near_means = np.abs(seq_support - means.T).sum(1).argsort()[:means_k]
     #near_means = near[np.abs(seq_support - means[:, near].T).sum(1).argsort()][:means_k]
     cls = int(scipy.stats.mode(classes[near_means])[0][0])
@@ -277,6 +277,31 @@ def sum_support_by_class(support, classes):
     cls_support /= nperclass
     return cls_support
 
+def get_all_support(training, min_len, max_len):
+    all_classes = np.empty((0, 0))
+    all_support = np.empty((0, len(training)))
+    all_candidates = []
+
+    nclasses = max([t[0] for t in training]) + 1
+
+    for length in xrange(min_len, max_len):
+
+        cands = generate_candidates(training, length)
+        classes, support, candidates = get_subsequence_support(cands, training)
+        normalise_subsequence_support(support, training)
+        print len(cands)
+        support, candidates, seqs = get_pruned_candidates(np.array(classes), support, candidates)
+        print len(support)
+
+        all_classes = classes
+        all_support = np.vstack((all_support, support))
+        all_candidates += map(tuple, candidates)
+
+        #print 'length: %d, candidates: %d, total candidates: %d' % (length, len(candidates), len(cands))
+
+    return all_classes, all_support, all_candidates
+    
+
 def knn_accuracy(training, test, min_len, max_len, k=20, means_k=5):
     global all_classes, all_support, all_candidates
 
@@ -287,27 +312,10 @@ def knn_accuracy(training, test, min_len, max_len, k=20, means_k=5):
 
     nclasses = max([t[0] for t in training]) + 1
 
-    for length in xrange(min_len, max_len):
-
-        cands = generate_candidates(training, length)
-        classes, support, candidates = get_subsequence_support(cands, training)
-        normalise_subsequence_support(support, training)
-        support, candidates, seqs = get_pruned_candidates(np.array(classes), support, candidates)
-        means = get_neighbourhood_class_means(support, classes, means_k)
-
-        all_classes = classes
-        all_support = np.vstack((all_support, support))
-        all_means = np.vstack((all_means, means))
-        all_candidates += map(tuple, candidates)
-
-        #print 'length: %d, candidates: %d, total candidates: %d' % (length, len(candidates), len(cands))
+    classes, support, candidates = get_all_support(training, min_len, max_len)
+    means = get_neighbourhood_class_means(support, classes, means_k)
 
     #print len(all_candidates)
-
-    classes = all_classes
-    support = all_support
-    candidates = all_candidates
-    means = all_means
 
     score = 0
 
